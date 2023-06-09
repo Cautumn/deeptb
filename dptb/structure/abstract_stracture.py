@@ -26,8 +26,8 @@ class AbstractStructure(with_metaclass(ABCMeta, object)):
         pass
 
     @abstractmethod
-    def read_struct(self, struct, type):
+    def update_struct(self, **kwargs):
         '''
-        read struct using ASE
+        update structure
         '''
         pass

@@ -1,0 +1,37 @@
+{   
+    "structure":"./data/kpathmd300.0/struct.vasp",
+    "task_options": {
+        "task": "negf",
+        "if_scf": true,
+        "ele_T": 500,
+        "scf_options":{
+            "mode": "PDIIS",
+            "mixing_period": 3,
+            "step_size": 0.05,
+            "n_history": 6,
+            "abs_err": 1e-6,
+            "rel_err": 1e-4,
+            "max_iter": 100
+        },
+        "stru_options":{
+            "device":{
+                "id":"20-40"
+            },
+            "l_lead":{
+                "id":"0-20",
+                "voltage":0.0
+            },
+            "r_lead":{
+                "id":"40-60",
+                "voltage":0.0
+            },
+            "d_trains":"z"
+        },
+        "poisson_options": {
+            "solver": "fmm",
+            "err": 1e-5
+        },
+        "sgf_solver": "Sancho-Rubio",
+        "espacing": 0.01
+    }
+}

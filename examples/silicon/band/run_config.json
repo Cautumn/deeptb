@@ -1,0 +1,77 @@
+{
+    "structure": "./data/silicon.vasp",
+    "task_options": {
+        "task": "band",
+        "kline_type": "abacus",
+        "kpath": [
+            [
+                0.0,
+                0.0,
+                0.0,
+                50
+            ],
+            [
+                0.5,
+                0.0,
+                0.5,
+                50
+            ],
+            [
+                0.625,
+                0.25,
+                0.625,
+                1
+            ],
+            [
+                0.375,
+                0.375,
+                0.75,
+                50
+            ],
+            [
+                0.0,
+                0.0,
+                0.0,
+                50
+            ],
+            [
+                0.5,
+                0.5,
+                0.5,
+                50
+            ],
+            [
+                0.5,
+                0.25,
+                0.75,
+                50
+            ],
+            [
+                0.5,
+                0.0,
+                0.5,
+                1
+            ]
+        ],
+        "klabels": [
+            "G",
+            "X",
+            "X/U",
+            "K",
+            "G",
+            "L",
+            "W",
+            "X"
+        ],
+        "E_fermi": -7.5,
+        "emin": -15,
+        "emax": 11,
+        "ref_band": "./data/kpath.0/eigs.npy",
+        "nkpoints": 0
+    },
+    "init_model": {
+        "path": "./ckpt/md/2-3-300K_best_dptb_b5.000_c5.000_w0.100.pth",
+        "interpolate": false
+    },
+    "use_correction": null
+}

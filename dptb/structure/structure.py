@@ -33,7 +33,7 @@ class BaseStruct(AbstractStructure):
         self.IndMap = Index_Mapings()
         self.updata_struct(self.atom, format=format, onsitemode=onsitemode)
 
-    def init_desciption(self):
+    def init_description(self):
         # init description
         self.atom_symbols = None
         self.aomtype = None
@@ -48,13 +48,13 @@ class BaseStruct(AbstractStructure):
         self.onsite_cutoff = None
 
     def updata_struct(self, atom, format, onsitemode:str='none'):
-        self.init_desciption()
+        self.init_description()
         self.onsitemode = onsitemode
-        self.read_struct(atom,format=format)
+        self._read_struct_(atom,format=format)
         self.atom_symbols = np.array(self.struct.get_chemical_symbols(), dtype=str)
         self.atom_numbers = np.array(self.struct.get_atomic_numbers(), dtype=int)
         self.atomtype = get_uniq_symbol(atomsymbols=self.atom_symbols)
-        self.projection()
+        self._projection_()
         self.proj_atom_symbols = self.projected_struct.get_chemical_symbols()
         self.proj_atom_numbers = self.projected_struct.get_atomic_numbers()
         self.proj_atom_neles_per = np.array([self.proj_atom_neles[ii] for ii in self.proj_atom_symbols])
@@ -69,7 +69,7 @@ class BaseStruct(AbstractStructure):
         self.bond_index_map, self.bond_num_hops = self.IndMap.Bond_Ind_Mapings()
         self.onsite_strain_index_map, self.onsite_strain_num, self.onsite_index_map, self.onsite_num = self.IndMap.Onsite_Ind_Mapings(onsitemode, atomtype=self.atomtype)
 
-    def read_struct(self, atom=None, format='ase'):
+    def _read_struct_(self, atom=None, format='ase'):
         '''The function reads a structure from a file or an ase object and stores it in the class
         
         Parameters
@@ -95,7 +95,7 @@ class BaseStruct(AbstractStructure):
         self.if_onsitenv_ready = False
         
 
-    def projection(self):
+    def _projection_(self):
         '''The function takes in a list of atom types and a list of angular momentum quantum numbers, and
         returns a projected structure with the atoms of the specified types
 
