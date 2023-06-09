@@ -14,14 +14,16 @@
             "max_iter": 100
         },
         "stru_options":{
+            "pbc":[true, true, false],
             "device":{
-                "id":"20-40"
+                "id":"20-40",
+                "sort": true
             },
-            "l_lead":{
+            "lead1":{
                 "id":"0-20",
                 "voltage":0.0
             },
-            "r_lead":{
+            "lead2":{
                 "id":"40-60",
                 "voltage":0.0
             },

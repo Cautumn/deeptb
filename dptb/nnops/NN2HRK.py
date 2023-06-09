@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from dptb.structure.structure import BaseStruct
 from dptb.structure.device import Device
+from dptb.structure.lead import Lead
 from dptb.dataprocess.processor import Processor
 from dptb.hamiltonian.hamil_eig_sk_crt import HamilEig
 from ase import Atoms
@@ -35,6 +36,8 @@ class NN2HRK(object):
                 self.structure = BaseStruct(atom=structure, format='ase', cutoff=self.apihost.model_config['bond_cutoff'], proj_atom_anglr_m=self.apihost.model_config['proj_atom_anglr_m'], proj_atom_neles=self.apihost.model_config['proj_atom_neles'], onsitemode=self.apihost.model_config['onsitemode'], time_symm=self.apihost.model_config['time_symm'])
             elif mode == "device":
                 self.structure = Device(atom=structure, format='ase', cutoff=self.apihost.model_config['bond_cutoff'], proj_atom_anglr_m=self.apihost.model_config['proj_atom_anglr_m'], proj_atom_neles=self.apihost.model_config['proj_atom_neles'], onsitemode=self.apihost.model_config['onsitemode'], time_symm=self.apihost.model_config['time_symm'], stru_options=stru_options)
+            elif mode == "laed":
+                self.structure = Lead(atom=structure, format='ase', cutoff=self.apihost.model_config['bond_cutoff'], proj_atom_anglr_m=self.apihost.model_config['proj_atom_anglr_m'], proj_atom_neles=self.apihost.model_config['proj_atom_neles'], onsitemode=self.apihost.model_config['onsitemode'], time_symm=self.apihost.model_config['time_symm'], stru_options=stru_options)
 
         else:
             raise ValueError("Invalid structure type: %s" % type(structure))

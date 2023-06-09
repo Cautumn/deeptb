@@ -248,7 +248,7 @@ def main_parser() -> argparse.ArgumentParser:
         "--structure",
         type=str,
         default=None,
-        help="the structure file name wiht its suffix of format, such as, .vasp, .cif etc., prior to the model_ckpt tags in the input json. "
+        help="the structure file name with its suffix of format, such as, .vasp, .cif etc., prior to the model_ckpt tags in the input json. "
     )
 
     parser_run.add_argument(

@@ -333,7 +333,7 @@ class HamilEig(RotationSK):
                 ied = int(np.sum(numOrbs[0:i+1]))
                 jst = int(np.sum(numOrbs[0:j]))
                 jed = int(np.sum(numOrbs[0:j+1]))
-                if ib < len(numOrbs): 
+                if ib < len(numOrbs):
                     """
                     len(numOrbs)= numatoms. the first numatoms are onsite energies.
                     if turn on timeSymm when generating the bond list <i,j>. only i>= or <= j are included. 
@@ -358,6 +358,7 @@ class HamilEig(RotationSK):
             Hk[:, totalOrbs:, totalOrbs:] += self.soc_upup.conj().unsqueeze(0)
             Hk[:, :totalOrbs, totalOrbs:] += self.soc_updown.unsqueeze(0)
             Hk[:, totalOrbs:, :totalOrbs] += self.soc_updown.conj().unsqueeze(0)
+            Hk = Hk.reshape(Hk.shape[0],2,totalOrbs, 2, totalOrbs).permute(0,2,1,4,3).reshape(Hk.shape[0], 2*totalOrbs, 2*totalOrbs)
         
         Hk.contiguous()
             
