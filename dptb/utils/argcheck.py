@@ -399,8 +399,10 @@ def task_options():
             Argument("FS2D", dict, FS2D()),
             Argument("FS3D", dict, FS3D()),
             Argument("write_sk", dict, write_sk()),
-            Argument("ifermi", dict, ifermi())
+            Argument("ifermi", dict, ifermi()),
+            Argument("negf", dict, negf())
         ],optional=True, default_tag="band", doc=doc_task)
+
 
 def normalize_run(data):
     doc_property = ""
@@ -464,14 +466,14 @@ def band():
     doc_klabels = ""
     doc_emin=""
     doc_emax=""
-    doc_E_fermi = ""
+    doc_e_fermi = ""
     doc_ref_band = ""
     
     return [
         Argument("kline_type", str, optional=False, doc=doc_kline_type),
         Argument("kpath", [str,list], optional=False, doc=doc_kpath),
         Argument("klabels", list, optional=True, default=[''], doc=doc_klabels),
-        Argument("E_fermi", [float, int, None], optional=True, doc=doc_E_fermi, default=None),
+        Argument("e_fermi", [float, int, None], optional=True, doc=doc_e_fermi, default=None),
         Argument("emin", [float, int, None], optional=True, doc=doc_emin, default=None),
         Argument("emax", [float, int, None], optional=True, doc=doc_emax, default=None),
         Argument("nkpoints", int, optional=True, doc=doc_emax, default=0),
@@ -652,6 +654,118 @@ def ifermi():
     prop = Argument("property", dict, optional=True, sub_fields=args_prop, sub_variants=[], default={}, doc=doc_prop)
 
     return [fermiarg, prop]
+
+def negf():
+    doc_scf = ""
+    doc_el_T = ""
+    doc_unit = ""
+    doc_read_HS = ""
+    doc_read_GF = ""
+    doc_read_SE = ""
+    doc_scf_options = ""
+    doc_stru_options = ""
+    doc_poisson_options = ""
+    doc_sgf_solver = ""
+    doc_espacing = ""
+    doc_emin = ""
+    doc_emax = ""
+    doc_e_fermi = ""
+    doc_eta_lead = ""
+    doc_eta_device = ""
+    doc_properties = ""
+    doc_mode = ""
+    doc_poissin_options = ""
+
+    return [
+        Argument("espacing", [int, float], optional=False, doc=doc_espacing),
+        Argument("emin", [int, float], optional=False, doc=doc_emin),
+        Argument("emax", [int, float], optional=False, doc=doc_emax),
+        Argument("e_fermi", [int, float], optional=False, doc=doc_e_fermi),
+        Argument("properties", list, optional=True, doc=doc_properties),
+        Argument("el_T", [float, int], optional=False, doc=doc_el_T),
+        Argument("stru_options", dict, optional=False, sub_fields=stru_options(), doc=doc_stru_options),
+        Argument("unit", str, optional=True, default="Hartree", doc=doc_unit),
+        Argument("eta_lead", [int, float], optional=True, default=1e-5, doc=doc_eta_lead),
+        Argument("eta_device", [int, float], optional=True, default=0., doc=doc_eta_device),
+        Argument("read_HS", bool, optional=True, default=False, doc=doc_read_HS),
+        Argument("read_GF", bool, optional=True, default=False, doc=doc_read_GF),
+        Argument("read_SE", bool, optional=True, default=False, doc=doc_read_SE),
+        Argument("sgf_solver", str, optional=True, default="Sancho-Rubio", doc=doc_sgf_solver),
+        Argument("scf", bool, optional=True, default=False, doc=doc_scf),
+        Argument("scf_options", dict, optional=True, default={}, sub_fields=[], sub_variants=[scf_options()], doc=doc_scf_options),
+        Argument("poisson_options", dict, optional=True, default={}, sub_fields=[], sub_variants=[poisson_options()], doc=doc_poisson_options)
+    ]
+
+def stru_options():
+    doc_kmesh = ""
+    doc_pbc = ""
+    doc_device = ""
+    doc_lead_L = ""
+    doc_lead_R = ""
+    return [
+        Argument("device", dict, optional=False, sub_fields=device(), doc=doc_device),
+        Argument("lead_L", dict, optional=False, sub_fields=lead(), doc=doc_lead_L),
+        Argument("lead_R", dict, optional=False, sub_fields=lead(), doc=doc_lead_R),
+        Argument("kmesh", list, optional=True, default=[1,1,1], doc=doc_kmesh),
+        Argument("pbc", list, optional=True, default=[False, False, False], doc=doc_pbc)
+    ]
+
+def device():
+    doc_id=""
+    doc_sort=""
+
+    return [
+        Argument("id", str, optional=False, doc=doc_id),
+        Argument("sort", bool, optional=True, default=True, doc=doc_sort)
+    ]
+
+def lead():
+    doc_id=""
+    doc_voltage=""
+
+    return [
+        Argument("id", str, optional=False, doc=doc_id),
+        Argument("voltage", [int, float], optional=False, doc=doc_voltage)
+    ]
+
+def scf_options():
+    doc_mode = ""
+    doc_PDIIS = ""
+
+    return Variant("mode", [
+        Argument("PDIIS", dict, PDIIS(), doc=doc_PDIIS)
+        ], optional=True, default_tag="PDIIS", doc=doc_mode)
+
+def PDIIS():
+    doc_mixing_period = ""
+    doc_step_size = ""
+    doc_n_history = ""
+    doc_abs_err = ""
+    doc_rel_err = ""
+    doc_max_iter = ""
+
+    return [
+        Argument("mixing_period", int, optional=True, default=3, doc=doc_mixing_period),
+        Argument("step_size", [int, float], optional=True, default=0.05, doc=doc_step_size),
+        Argument("n_history", int, optional=True, default=6, doc=doc_n_history),
+        Argument("abs_err", [int, float], optional=True, default=1e-6, doc=doc_abs_err),
+        Argument("rel_err", [int, float], optional=True, default=1e-4, doc=doc_rel_err),
+        Argument("max_iter", int, optional=True, default=100, doc=doc_max_iter)
+    ]
+
+def poisson_options():
+    doc_solver = ""
+    doc_fmm = ""
+    return Variant("solver", [
+        Argument("fmm", dict, fmm(), doc=doc_fmm)
+    ], optional=True, default_tag="fmm", doc=doc_solver)
+
+def fmm():
+    doc_err = ""
+
+    return [
+        Argument("err", [int, float], optional=True, default=1e-5, doc=doc_err)
+    ]
 
 def write_sk():
     doc_thr = ""

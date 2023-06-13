@@ -22,6 +22,7 @@ from dptb.postprocess.bandstructure.dos import doscalc, pdoscalc
 from dptb.postprocess.bandstructure.fermisurface import fs2dcalc, fs3dcalc
 from dptb.postprocess.bandstructure.ifermi_api import ifermiapi, ifermi_installed, pymatgen_installed
 from dptb.postprocess.write_skparam import WriteNNSKParam
+from dptb.postprocess.NEGF import NEGF
 
 __all__ = ["run"]
 
@@ -95,10 +96,10 @@ def run(
     task_options = j_must_have(jdata, "task_options")
     task = task_options["task"]
     model_ckpt = run_opt["init_model"]["path"]
-    # init_type = model_ckpt.split(".")[-1]
-    # if init_type not in ["json", "pth"]:
-    #     log.error(msg="Error! the model file should be a json or pth file.")
-    #     raise RuntimeError
+    init_type = model_ckpt.split(".")[-1]
+    if init_type not in ["json", "pth"]:
+        log.error(msg="Error! the model file should be a json or pth file.")
+        raise RuntimeError
     
     # if init_type == "json":
     #     jdata = host_normalize(jdata)
@@ -145,7 +146,10 @@ def run(
         jdata["common_options"]["dtype"] = dtype_dict[jdata["common_options"]["dtype"]]
 
     if run_sk:
-        apihost = NNSKHost(checkpoint=model_ckpt, config=jdata)
+        if model_ckpt.split(".")[-1] == "json" and not jdata["common_options"].get("bond_cutoff"):
+            raise RuntimeError("Config infomation should be included if initialize with json checkpoint file.")
+        
+        apihost = NNSKHost(checkpoint=model_ckpt, config=INPUT)
         apihost.register_plugin(InitSKModel())
         apihost.build()
         apiHrk = NN2HRK(apihost=apihost, mode='nnsk')
@@ -205,6 +209,13 @@ def run(
         write_sk = WriteNNSKParam(apiHrk, run_opt, task_options)
         write_sk.write()
         log.info(msg='write_sk calculation successfully completed.')
+
+    if task == 'negf':
+        negf = NEGF(apiHrk, run_opt, task_options)
+        negf.compute()
+        log.info(msg='NEGF calculation successfully completed.')
+
+        
 
 
     if output:

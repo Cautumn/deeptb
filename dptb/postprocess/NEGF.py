@@ -8,15 +8,18 @@ from ase.io import read
 from dptb.negf.poisson import density2Potential, getImg
 from dptb.negf.SCF import _SCF
 from dptb.utils.constants import *
+import logging
 import os
 import torch.optim as optim
 from dptb.utils.tools import j_must_have
 from tqdm import tqdm
 import numpy as np
+from dptb.utils.make_kpoints import kmesh_sampling
 
 '''
 1. split the leads, the leads and contact, and contact. the atoms
 '''
+log = logging.getLogger(__name__)
 
 class NEGF(object):
     def __init__(self, apiHrk, run_opt, jdata):
@@ -34,18 +37,31 @@ class NEGF(object):
         self.cdtype = torch.complex128
         self.device = "cpu"
         
-        self.init_indices()
+        
+        
 
         # get the parameters
-        self.ele_T = jdata["ele_T"]
+        self.el_T = jdata["el_T"]
         self.e_fermi = jdata["e_fermi"]
         self.stru_options = j_must_have(jdata, "stru_options")
         self.pbc = self.stru_options["pbc"]
+        if not any(self.pbc):
+            self.kpoint = np.array([[0,0,0]])
+        else:
+            self.kpoint = kmesh_sampling(self.jdata["kmesh"])
+
+        self.init_indices()
+        self.unit = jdata["unit"]
+        self.scf = jdata["scf"]
+        self.properties = jdata["properties"]
         
 
         # computing the hamiltonian
-        if os.path.exists(os.path.join(self.results_path, "HS.pth")) and jdata["read_hs"]:
-            HS = torch.load(os.path.join(self.results_path, "HS.path"))
+        if os.path.exists(os.path.join(self.results_path, "HS.pth")) and jdata["read_HS"]:
+            HS = torch.load(os.path.join(self.results_path, "HS.pth"))
+        elif jdata["read_HS"]:
+            log.error("The user should provide HS file")
+            raise RuntimeError
         else:
             HS = {}
 
@@ -53,7 +69,7 @@ class NEGF(object):
             self.apiH.update_struct(self.structase, mode="device", stru_options=j_must_have(self.stru_options, "device"))
             self.atom_norbs = [self.apiH.structure.proj_atomtype_norbs[i] for i in self.apiH.structure.atom_symbols]
             self.apiH.get_HR()
-            H, S = self.apiH.get_HK(kpoints=torch.tensor([[0,0,0]]))
+            H, S = self.apiH.get_HK(kpoints=self.kpoint)
             d_start = int(np.sum(self.atom_norbs[:self.device_id[0]]))
             d_end = int(np.sum(self.atom_norbs)-np.sum(self.atom_norbs[self.device_id[1]:]))
             HD, SD = H[0,d_start:d_end, d_start:d_end], S[0, d_start:d_end, d_start:d_end]
@@ -61,7 +77,7 @@ class NEGF(object):
 
             HS["device"].update({"HD":HD.cdouble()})
             HS["device"].update({"SD":SD.cdouble()})
-            self.kBT = k * self.ele_T / eV
+            self.kBT = k * self.el_T / eV
 
             for kk in self.stru_options:
                 if kk.startswith("lead"):
@@ -81,7 +97,7 @@ class NEGF(object):
                     stru_lead = self.structase[lead_id[0]:lead_id[1]]
                     self.apiH.update_struct(stru_lead, mode="lead", stru_options=self.stru_options.get(kk))
                     self.apiH.get_HR()
-                    h, s = self.apiH.get_HK(kpoints=torch.tensor([[0,0,0]]))
+                    h, s = self.apiH.get_HK(kpoints=self.kpoint)
                     nL = int(h.shape[1] / 2)
                     HLL, SLL = h[0, :nL, nL:], s[0, :nL, nL:] # H_{L_first2L_second}
                     assert (h[0, :nL, :nL] - HL).abs().max() < 1e-5 # check the lead hamiltonian get from device and lead calculation matches each other
@@ -96,7 +112,15 @@ class NEGF(object):
 
         # computing parameters for NEGF
         self.e_mesh = torch.linspace(start=self.jdata["emin"]+self.e_fermi, end=self.jdata["emax"]+self.e_fermi, steps=int((self.jdata["emax"]-self.jdata["emin"])/self.jdata["espacing"]))
-        self.e_mesh = self.e_mesh / (13.605662285137 * 2)
+        if self.unit == "Hartree":
+            self.e_mesh = self.e_mesh / (13.605662285137 * 2)
+        elif self.unit == "eV":
+            self.e_mesh = self.e_mesh
+        elif self.unit == "Ry":
+            self.e_mesh = self.e_mesh / 13.605662285137
+        else:
+            log.error("The unit name is not correct !")
+            raise ValueError
 
     def init_indices(self):
         self.device_id = [int(x) for x in self.stru_options.get("device")["id"].split("-")]
@@ -104,6 +128,13 @@ class NEGF(object):
         for kk in self.stru_options:
             if kk.startswith("lead"):
                 self.lead_ids.append([int(x) for x in self.stru_options.get(kk)["id"].split("-")])
+
+    def compute(self):
+        self.compute_electrode_self_energy()
+        self.compute_green_function()
+        self.compute_properties()
+        
+
 
     def self_energy(
             self, 
@@ -147,11 +178,17 @@ class NEGF(object):
         return green
     
     def compute_green_function(self):
+        log.info(msg="Computing Green Functions")
         if self.jdata["scf"]:
             V = self.SCF()
         else:
             V = None
-        self.green = self.green_function(self.e_mesh, self.HS["device"]["HD"], self.HS["device"]["SD"], self.SeE, V=V, etaDevice=self.jdata["eta_device"])
+
+        if not self.jdata["read_GF"]:
+            self.green = self.green_function(self.e_mesh, self.HS["device"]["HD"], self.HS["device"]["SD"], self.SeE, V=V, etaDevice=self.jdata["eta_device"])
+            torch.save(obj=self.green, f=os.path.join(self.results_path, "./GF.pth"))
+        else:
+            self.green = torch.load(os.path.join(self.results_path, "./GF.pth"))
 
         return True
     
@@ -172,37 +209,59 @@ class NEGF(object):
     def compute_electrode_self_energy(self):
         # compute SE for properties calculation:
         
+        log.info(msg="Computing Electrode Self-Energy")
+
+        if not self.jdata["read_SE"]:
+            SeE = {}
+            SeE["emesh"] = self.e_mesh
+            for kk in self.HS:
+                if kk.startswith("lead"):
+                    SeE[kk] = self.self_energy(
+                        self.e_mesh, 
+                        HL=self.HS[kk]["HL"], 
+                        HLL=self.HS[kk]["HLL"],
+                        SL=self.HS[kk]["SL"],
+                        SLL=self.HS[kk]["SLL"],
+                        HDL=self.HS[kk]["HDL"],
+                        SDL=self.HS[kk]["SDL"],
+                        u=self.stru_options[kk]["voltage"],
+                        etaLead=self.jdata["eta_lead"],
+                        method=self.jdata["sgf_solver"]
+                        )
         
-        SeE = {}
-        SeE["emesh"] = self.e_mesh
-        for kk in self.HS:
-            if kk.startswith("lead"):
-                SeE[kk] = self.self_energy(
-                    self.e_mesh, 
-                    HL=self.HS[kk]["HL"], 
-                    HLL=self.HS[kk]["HLL"],
-                    SL=self.HS[kk]["SL"],
-                    SLL=self.HS[kk]["SLL"],
-                    HDL=self.HS[kk]["HDL"],
-                    SDL=self.HS[kk]["SDL"],
-                    u=self.stru_options[kk]["voltage"],
-                    etaLead=self.jdata["eta_lead"],
-                    method=self.jdata["sgf_solver"]
-                    )
-                
+            torch.save(obj=SeE, f=os.path.join(self.results_path, "./el_SE.pth"))
+        else:
+            SeE = torch.load(os.path.join(self.results_path, "./el_SE.pth"))
         self.SeE = SeE
 
         return True
     
-    def calDOS(self, grd):
+    def compute_properties(self):
+        
+        out = {}
+        for p in self.properties:
+            log.info(msg="Computing {0}".format(p))
+            out[p] = getattr(self, "compute_"+p)()
+
+        torch.save(obj=out, f=os.path.join(self.results_path, "./properties.pth"))
+
+    def compute_DOS(self):
+        grd = [i[1] for i in self.green]
+        return [self.DOS(grd=grd[i], SD=[self.HS["device"]["SD"]]) for i in range(len(grd))]
+    
+    def compute_TC(self):
+        gtrains = [i[0] for i in self.green]
+        return [self.TC(seL=self.SeE["lead_L"][i], seR=self.SeE["lead_R"][i], gtrains=gtrains[i]) for i in range(len(gtrains))]
+    
+    def DOS(self, grd, SD):
         dos = 0
         for jj in range(len(grd)):
-            temp = grd[jj] @ self.hmt_ovp['sd'][jj]
+            temp = grd[jj] @ SD[jj]
             dos -= torch.trace(temp.imag) / pi
 
         return dos
 
-    def calTT(self, seL, seR, gtrains):
+    def TC(self, seL, seR, gtrains):
         tx, ty = gtrains.shape
         lx, ly = seL.shape
         rx, ry = seR.shape
@@ -214,9 +273,9 @@ class NEGF(object):
         gammaR = torch.zeros(size=(ty, ty), dtype=self.cdtype, device=self.device)
         gammaR[-x1:, -x1:] += self.sigmaLR2Gamma(seR)[-x1:, -x1:]
 
-        TT = torch.trace(gammaL @ gtrains @ gammaR @ gtrains.conj().T).real
+        TC = torch.trace(gammaL @ gtrains @ gammaR @ gtrains.conj().T).real
 
-        return TT
+        return TC
 
     def sigmaLR2Gamma(self, se):
         return -1j * (se - se.conj())
