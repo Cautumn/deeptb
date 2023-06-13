@@ -34,63 +34,69 @@ class NEGF(object):
         self.cdtype = torch.complex128
         self.device = "cpu"
         
-        self.stru_options = j_must_have(jdata, "stru_options")
-        self.pbc = self.stru_options["pbc"]
-
         self.init_indices()
 
+        # get the parameters
         self.ele_T = jdata["ele_T"]
+        self.e_fermi = jdata["e_fermi"]
+        self.stru_options = j_must_have(jdata, "stru_options")
+        self.pbc = self.stru_options["pbc"]
+        
 
         # computing the hamiltonian
-        HS = {}
+        if os.path.exists(os.path.join(self.results_path, "HS.pth")) and jdata["read_hs"]:
+            HS = torch.load(os.path.join(self.results_path, "HS.path"))
+        else:
+            HS = {}
 
-        HS["device"] = {}
-        self.apiH.update_struct(self.structase, mode="device", stru_options=j_must_have(self.stru_options, "device"))
-        torch.save({"bond":self.apiH.structure.__bonds__, "bond_on":self.apiH.structure.__bonds_onsite__}, f=os.path.join(self.results_path, "bond.pth"))
-        self.atom_norbs = [self.apiH.structure.proj_atomtype_norbs[i] for i in self.apiH.structure.atom_symbols]
-        self.apiH.get_HR()
-        H, S = self.apiH.get_HK(kpoints=torch.tensor([[0,0,0]]))
-        d_start = int(np.sum(self.atom_norbs[:self.device_id[0]]))
-        d_end = int(np.sum(self.atom_norbs)-np.sum(self.atom_norbs[self.device_id[1]:]))
-        HD, SD = H[0,d_start:d_end, d_start:d_end], S[0, d_start:d_end, d_start:d_end]
+            HS["device"] = {}
+            self.apiH.update_struct(self.structase, mode="device", stru_options=j_must_have(self.stru_options, "device"))
+            self.atom_norbs = [self.apiH.structure.proj_atomtype_norbs[i] for i in self.apiH.structure.atom_symbols]
+            self.apiH.get_HR()
+            H, S = self.apiH.get_HK(kpoints=torch.tensor([[0,0,0]]))
+            d_start = int(np.sum(self.atom_norbs[:self.device_id[0]]))
+            d_end = int(np.sum(self.atom_norbs)-np.sum(self.atom_norbs[self.device_id[1]:]))
+            HD, SD = H[0,d_start:d_end, d_start:d_end], S[0, d_start:d_end, d_start:d_end]
+            
+
+            HS["device"].update({"HD":HD.cdouble()})
+            HS["device"].update({"SD":SD.cdouble()})
+            self.kBT = k * self.ele_T / eV
+
+            for kk in self.stru_options:
+                if kk.startswith("lead"):
+                    HS[kk] = {}
+                    lead_id = [int(x) for x in self.stru_options.get(kk)["id"].split("-")]
+                    l_start = int(np.sum(self.atom_norbs[:lead_id[0]]))
+                    l_end = int(l_start + np.sum(self.atom_norbs[lead_id[0]:lead_id[1]]) / 2)
+                    HL, SL = H[0,l_start:l_end, l_start:l_end], S[0, l_start:l_end, l_start:l_end] # lead hamiltonian
+                    HDL, SDL = H[0,d_start:d_end, l_start:l_end], S[0,d_start:d_end, l_start:l_end] # device and lead's hopping
+                    HS[kk].update({
+                        "HL":HL.cdouble(), 
+                        "SL":SL.cdouble(), 
+                        "HDL":HDL.cdouble(), 
+                        "SDL":SDL.cdouble()}
+                        )
+
+                    stru_lead = self.structase[lead_id[0]:lead_id[1]]
+                    self.apiH.update_struct(stru_lead, mode="lead", stru_options=self.stru_options.get(kk))
+                    self.apiH.get_HR()
+                    h, s = self.apiH.get_HK(kpoints=torch.tensor([[0,0,0]]))
+                    nL = int(h.shape[1] / 2)
+                    HLL, SLL = h[0, :nL, nL:], s[0, :nL, nL:] # H_{L_first2L_second}
+                    assert (h[0, :nL, :nL] - HL).abs().max() < 1e-5 # check the lead hamiltonian get from device and lead calculation matches each other
+                    HS[kk].update({
+                        "HLL":HLL.cdouble(), 
+                        "SLL":SLL.cdouble()}
+                        )
+            
+            torch.save(obj=HS, f=os.path.join(self.results_path, "HS.pth"))
         
-
-        HS["device"].update({"HD":HD.cdouble()})
-        HS["device"].update({"SD":SD.cdouble()})
-        self.kBT = k * self.ele_T / eV
-
-        for kk in self.stru_options:
-            if kk.startswith("lead"):
-                HS[kk] = {}
-                lead_id = [int(x) for x in self.stru_options.get(kk)["id"].split("-")]
-                l_start = int(np.sum(self.atom_norbs[:lead_id[0]]))
-                l_end = int(l_start + np.sum(self.atom_norbs[lead_id[0]:lead_id[1]]) / 2)
-                HL, SL = H[0,l_start:l_end, l_start:l_end], S[0, l_start:l_end, l_start:l_end] # lead hamiltonian
-                HDL, SDL = H[0,d_start:d_end, l_start:l_end], S[0,d_start:d_end, l_start:l_end] # device and lead's hopping
-                HS[kk].update({
-                    "HL":HL.cdouble(), 
-                    "SL":SL.cdouble(), 
-                    "HDL":HDL.cdouble(), 
-                    "SDL":SDL.cdouble()}
-                    )
-
-                stru_lead = self.structase[lead_id[0]:lead_id[1]]
-                self.apiH.update_struct(stru_lead, mode="lead", stru_options=self.stru_options.get(kk))
-                self.apiH.get_HR()
-                h, s = self.apiH.get_HK(kpoints=torch.tensor([[0,0,0]]))
-                nL = int(h.shape[1] / 2)
-                HLL, SLL = h[0, :nL, nL:], s[0, :nL, nL:] # H_{L_first2L_second}
-                assert (h[0, :nL, :nL] - HL).abs().max() < 1e-5 # check the lead hamiltonian get from device and lead calculation matches each other
-                HS[kk].update({
-                    "HLL":HLL.cdouble(), 
-                    "SLL":SLL.cdouble()}
-                    )
-        
-        torch.save(obj=HS, f=os.path.join(self.results_path, "HS.pth"))
         self.HS = HS
 
         # computing parameters for NEGF
-        self.e_mesh = torch.linspace(start=self.jdata["emin"], end=self.jdata["emax"], steps=int((self.jdata["emax"]-self.jdata["emin"])/self.jdata["espacing"]))
+        self.e_mesh = torch.linspace(start=self.jdata["emin"]+self.e_fermi, end=self.jdata["emax"]+self.e_fermi, steps=int((self.jdata["emax"]-self.jdata["emin"])/self.jdata["espacing"]))
+        self.e_mesh = self.e_mesh / (13.605662285137 * 2)
 
     def init_indices(self):
         self.device_id = [int(x) for x in self.stru_options.get("device")["id"].split("-")]

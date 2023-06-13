@@ -31,12 +31,12 @@ class Device(BaseStruct):
         self._read_struct_(atom,format=format)
 
         # sort the atom in device part. only implementing sorting along z direction for now.
-        # device_id = [int(x) for x in self.device_options["id"].split("-")]
-        # tags = self.struct.positions[:,2][device_id[0]:device_id[1]] # the z direction
-        # indices = list(range(len(self.struct)))
-        # deco = sorted([(tag, i) for i, tag in enumerate(tags)])
-        # indices[device_id[0]:device_id[1]] = [i for _, i in deco]
-        # self.struct = self.struct[indices]
+        device_id = [int(x) for x in self.device_options["id"].split("-")]
+        tags = self.struct.positions[:,2][device_id[0]:device_id[1]] # the z direction
+        indices = list(range(len(self.struct)))
+        deco = sorted([(tag, i) for i, tag in enumerate(tags)])
+        indices[device_id[0]:device_id[1]] = [i for _, i in deco]
+        self.struct = self.struct[indices]
         self.struct.pbc = self.pbc
 
         self.atom_symbols = np.array(self.struct.get_chemical_symbols(), dtype=str)
