@@ -4,6 +4,7 @@
         "dtype": "float32",
         "onsite_cutoff": 1.6,
         "bond_cutoff": 3.0,
+        "unit": "Hartree",
         "env_cutoff": 3.0,
         "sk_file_path": "./examples/slakos/",
         "atomtype": [
