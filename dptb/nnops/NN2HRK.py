@@ -35,9 +35,9 @@ class NN2HRK(object):
             if mode == "base":
                 self.structure = BaseStruct(atom=structure, format='ase', cutoff=self.apihost.model_config['bond_cutoff'], proj_atom_anglr_m=self.apihost.model_config['proj_atom_anglr_m'], proj_atom_neles=self.apihost.model_config['proj_atom_neles'], onsitemode=self.apihost.model_config['onsitemode'], time_symm=self.apihost.model_config['time_symm'])
             elif mode == "device":
-                self.structure = Device(atom=structure, format='ase', cutoff=self.apihost.model_config['bond_cutoff'], proj_atom_anglr_m=self.apihost.model_config['proj_atom_anglr_m'], proj_atom_neles=self.apihost.model_config['proj_atom_neles'], onsitemode=self.apihost.model_config['onsitemode'], time_symm=self.apihost.model_config['time_symm'], stru_options=stru_options)
-            elif mode == "laed":
-                self.structure = Lead(atom=structure, format='ase', cutoff=self.apihost.model_config['bond_cutoff'], proj_atom_anglr_m=self.apihost.model_config['proj_atom_anglr_m'], proj_atom_neles=self.apihost.model_config['proj_atom_neles'], onsitemode=self.apihost.model_config['onsitemode'], time_symm=self.apihost.model_config['time_symm'], stru_options=stru_options)
+                self.structure = Device(atom=structure, format='ase', cutoff=self.apihost.model_config['bond_cutoff'], proj_atom_anglr_m=self.apihost.model_config['proj_atom_anglr_m'], proj_atom_neles=self.apihost.model_config['proj_atom_neles'], onsitemode=self.apihost.model_config['onsitemode'], time_symm=self.apihost.model_config['time_symm'], device_options=stru_options)
+            elif mode == "lead":
+                self.structure = Lead(atom=structure, format='ase', cutoff=self.apihost.model_config['bond_cutoff'], proj_atom_anglr_m=self.apihost.model_config['proj_atom_anglr_m'], proj_atom_neles=self.apihost.model_config['proj_atom_neles'], onsitemode=self.apihost.model_config['onsitemode'], time_symm=self.apihost.model_config['time_symm'], lead_options=stru_options)
 
         else:
             raise ValueError("Invalid structure type: %s" % type(structure))

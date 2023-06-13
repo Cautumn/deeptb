@@ -2,7 +2,7 @@
     "structure":"./data/kpathmd300.0/struct.vasp",
     "task_options": {
         "task": "negf",
-        "if_scf": true,
+        "scf": true,
         "ele_T": 500,
         "scf_options":{
             "mode": "PDIIS",
@@ -19,11 +19,11 @@
                 "id":"20-40",
                 "sort": true
             },
-            "lead1":{
+            "lead_L":{
                 "id":"0-20",
                 "voltage":0.0
             },
-            "lead2":{
+            "lead_R":{
                 "id":"40-60",
                 "voltage":0.0
             },
@@ -34,6 +34,11 @@
             "err": 1e-5
         },
         "sgf_solver": "Sancho-Rubio",
-        "espacing": 0.01
+        "espacing": 0.01,
+        "emin": -3,
+        "emax": 3,
+        "eta_lead":1e-5,
+        "eta_device":0.0,
+        "properties":["DOS", "TC", "density"]
     }
 }

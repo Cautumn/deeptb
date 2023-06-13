@@ -18,28 +18,31 @@ from ase import Atoms
 
 class Lead(BaseStruct):
     def __init__(self, atom, format, cutoff, proj_atom_anglr_m, proj_atom_neles, onsitemode:str='none', time_symm=True, lead_options={}, pbc=[False, False, False]):
-        super(Lead, self).__init__(atom, format, cutoff, proj_atom_anglr_m, proj_atom_neles, onsitemode, time_symm)
-        self.lead_options = lead_options
         self.pbc = pbc
         self.pbc[2] = True
+        self.lead_options = lead_options
+        super(Lead, self).__init__(atom, format, cutoff, proj_atom_anglr_m, proj_atom_neles, onsitemode, time_symm)
+        
+
     
-    def updata_struct(self, atom, format, onsitemode:str='none'):
-        self.init_desciption()
+    def update_struct(self, atom, format, onsitemode:str='none'):
+        self.init_description()
         self.onsitemode = onsitemode
         self._read_struct_(atom, format=format)
         
         # get the cell, elements and positions and construct the lead lattice
         cell = np.array(self.struct.cell)[:2]
-        device_id = [int(x) for x in self.lead_options["id"].split("-")]
-        natom = device_id[1] - device_id[0]
-        R_vec = self.struct[device_id[1]-(natom/2):device_id[1]].positions() - self.struct[device_id[0]:device_id[1]-(natom/2)].positions()
-        assert np.abs(R_vec[0] - R_vec[-1]).sum() < 1e-14
-        R_vec = R_vec[0] * 2
+        lead_id = [int(x) for x in self.lead_options["id"].split("-")]
+        natom = lead_id[1] - lead_id[0]
+        R_vec = self.struct[int(natom/2):].positions - self.struct[:int(natom/2)].positions
+        assert np.abs(R_vec[0] - R_vec[-1]).sum() < 1e-5
+        R_vec = R_vec.mean(axis=0) * 2
         cell = np.concatenate([cell, R_vec.reshape(1,-1)])
         elements = self.struct.get_chemical_symbols()
-        positions = self.struct.positions()
+        positions = self.struct.positions
         symbols = self.struct.symbols
         self.struct = Atoms(str(symbols), positions=positions, cell=cell, pbc=self.pbc)
+        self.struct.set_chemical_symbols(elements)
 
 
         self.atom_symbols = np.array(self.struct.get_chemical_symbols(), dtype=str)
@@ -61,10 +64,15 @@ class Lead(BaseStruct):
         self.onsite_strain_index_map, self.onsite_strain_num, self.onsite_index_map, self.onsite_num = self.IndMap.Onsite_Ind_Mapings(onsitemode, atomtype=self.atomtype)
 
     def get_bond(self, cutoff=None, time_symm=True):
-        self.struct.pbc[2] = False
+        self.projected_struct.pbc[2] = False
         super().get_bond(cutoff, time_symm)
-        self.struct.pbc[2] = True
+        self.projected_struct.pbc[2] = True
         return self.__bonds__, self.__bonds_onsite__
     
     def get_env(self, env_cutoff=None, sorted='iatom-jatom'):
         return super().get_env(env_cutoff, sorted)
+    
+    def _projection_(self):
+        out = super()._projection_()
+        self.projected_struct.pbc = self.pbc
+        return out

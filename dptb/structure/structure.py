@@ -31,12 +31,12 @@ class BaseStruct(AbstractStructure):
         self.__projenv__ = {}
         self.__onsitenv__ = {}
         self.IndMap = Index_Mapings()
-        self.updata_struct(self.atom, format=format, onsitemode=onsitemode)
+        self.update_struct(self.atom, format=format, onsitemode=onsitemode)
 
     def init_description(self):
         # init description
         self.atom_symbols = None
-        self.aomtype = None
+        self.atomtype = None
         # self.atomt_anglr_m = None
         self.proj_atomtype = None
         # self.proj_atom_anglr_m = None
@@ -47,7 +47,7 @@ class BaseStruct(AbstractStructure):
         self.if_onsitenv_ready = False
         self.onsite_cutoff = None
 
-    def updata_struct(self, atom, format, onsitemode:str='none'):
+    def update_struct(self, atom, format, onsitemode:str='none'):
         self.init_description()
         self.onsitemode = onsitemode
         self._read_struct_(atom,format=format)

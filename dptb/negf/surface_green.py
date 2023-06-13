@@ -9,13 +9,14 @@ from torch.autograd.functional import jvp
 class surface_green(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, H, h01, S, s01, ee, left=True, method='Lopez-Sancho'):
+    def forward(ctx, H, h01, S, s01, ee, method='Lopez-Sancho'):
         '''
+        gs = [A_l - A_{l,l-1} gs A_{l-1,l}]^{-1}
         找找改进
         1. ee can be a list, to handle a batch of samples
         '''
         if method == 'GEP':
-            gs = calcg0(ee, H, S, h01, s01, left=left)
+            gs = calcg0(ee, H, S, h01, s01)
         else:
             h10 = h01.conj().T
             s10 = s01.conj().T
@@ -33,10 +34,8 @@ class surface_green(torch.autograd.Function):
 
                 alpha, beta = torch.mm(oldalpha, tmpa), torch.mm(oldbeta, tmpb)
                 eps = oldeps + torch.mm(oldalpha, tmpb) + torch.mm(oldbeta, tmpa)
-                if left:
-                    epss = oldepss + torch.mm(oldalpha, tmpb)
-                else:
-                    epss = oldepss + torch.mm(oldbeta, tmpa)
+
+                epss = oldepss + torch.mm(oldbeta, tmpa)
                 LopezConvTest = torch.max(alpha.abs() + beta.abs())
 
                 if iteration == 101:
@@ -45,18 +44,13 @@ class surface_green(torch.autograd.Function):
                 if LopezConvTest < 1.0e-40:
                     gs = (ee * S - epss).inverse()
 
-                    if left:
-                        test = ee * S - H - torch.mm(ee * s10 - h10, gs.mm(ee * s01 - h01))
-                    else:
-                        test = ee * S - H - torch.mm(ee * s01 - h01, gs.mm(ee * s10 - h10))
+                    test = ee * S - H - torch.mm(ee * s01 - h01, gs.mm(ee * s10 - h10))
                     myConvTest = torch.max((test.mm(gs) - torch.eye(H.shape[0], dtype=h01.dtype)).abs())
                     if myConvTest < 1.0e-8:
                         converged = True
                         if myConvTest > 1.0e-10:
-                            v = "RIGHT"
-                            if left: v = "LEFT"
                             print(
-                                "WARNING: Lopez-scheme not-so-well converged for " + v + " electrode at E = %.4f eV:" % ee.real.item(),
+                                "WARNING: Lopez-scheme not-so-well converged at E = %.4f eV:" % ee.real.item(),
                                 myConvTest.item())
                     else:
                         print("Lopez-Sancho", myConvTest,
@@ -64,7 +58,6 @@ class surface_green(torch.autograd.Function):
                         raise ArithmeticError("Criteria not met. Please check output...")
 
         ctx.save_for_backward(gs, H, h01, S, s01, ee)
-        ctx.left = left
 
         return gs
 
@@ -73,14 +66,9 @@ class surface_green(torch.autograd.Function):
         gs_, H_, h01_, S_, s01_, ee_ = ctx.saved_tensors
         left = ctx.left
 
-        if left:
-            def sgfn(gs, *params):
-                [H, h01, S, s01, ee] = params
-                return tLA.inv(ee*S-H-(ee*s01.conj().T-h01.conj().T).matmul(gs).matmul(ee*s01-h01)) - gs
-        else:
-            def sgfn(gs, *params):
-                [H, h01, S, s01, ee] = params
-                return tLA.inv(ee*S - H - (ee*s01 - h01).matmul(gs).matmul(ee*s01.conj().T - h01.conj().T)) - gs
+        def sgfn(gs, *params):
+            [H, h01, S, s01, ee] = params
+            return tLA.inv(ee*S - H - (ee*s01 - h01).matmul(gs).matmul(ee*s01.conj().T - h01.conj().T)) - gs
 
         params = [H_, h01_, S_, s01_, ee_]
         idx = [i for i in range(len(params)) if params[i].requires_grad]
@@ -144,30 +132,24 @@ class surface_green(torch.autograd.Function):
 
 
 
-def selfEnergy(hd, hu, sd, su, ee, coup_u=None, ovp_u=None, left=True, etaLead=1e-8, Bulk=False, voltage=0.0, dtype=torch.complex128, device='cpu', method='Lopez-Sancho'):
-
+def selfEnergy(hL, hLL, sL, sLL, ee, hDL=None, sDL=None, etaLead=1e-8, Bulk=False, voltage=0.0, dtype=torch.complex128, device='cpu', method='Lopez-Sancho'):
     if not isinstance(ee, torch.Tensor):
         eeshifted = torch.scalar_tensor(ee, dtype=dtype) - voltage  # Shift of self energies due to voltage(V)
     else:
         eeshifted = ee - voltage
 
-    if coup_u == None:
-        ESH = (eeshifted * sd - hd)
-        SGF = surface_green.apply(hd, hu, sd, su, eeshifted + 1j * etaLead, left, method)
-        # Sig = -0.5j*10 * torch.ones_like(ESH)
-        # SGF = tLA.inv(ESH - Sig)
+    if hDL == None:
+        ESH = (eeshifted * sL - hL)
+        SGF = surface_green.apply(hL, hLL, sL, sLL, eeshifted + 1j * etaLead, method)
 
         if Bulk:
             Sig = tLA.inv(SGF)  # SGF^1
         else:
             Sig = ESH - tLA.inv(SGF)
     else:
-        a, b = coup_u.shape
-        SGF = surface_green.apply(hd, hu, sd, su, eeshifted + 1j * etaLead, left, method)
-        if left:
-            Sig = (ee*ovp_u.conj().T-coup_u.conj().T) @ SGF[-a:,-a:] @ (ee*ovp_u-coup_u)
-        else:
-            Sig = (ee*ovp_u-coup_u) @ SGF[:b,:b] @ (ee*ovp_u.conj().T-coup_u.conj().T)
+        a, b = hDL.shape
+        SGF = surface_green.apply(hL, hLL, sL, sLL, eeshifted + 1j * etaLead, method)
+        Sig = (ee*sDL-hDL) @ SGF[:b,:b] @ (ee*sDL.conj().T-hDL.conj().T)
     return Sig, SGF  # R(nuo, nuo)
 
 

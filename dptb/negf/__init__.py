@@ -1,1 +1,1 @@
-from calc.NEGF import *
+from dptb.negf import *
