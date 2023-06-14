@@ -105,6 +105,8 @@ class NEGF(object):
                         "HLL":HLL.cdouble(), 
                         "SLL":SLL.cdouble()}
                         )
+                    
+            # check whether all matrices are correct
             
             torch.save(obj=HS, f=os.path.join(self.results_path, "HS.pth"))
         
@@ -282,3 +284,4 @@ class NEGF(object):
 
     def SCF(self):
         pass
+    
