@@ -10,6 +10,7 @@ from ase.io import read
 from dptb.negf.poisson import density2Potential, getImg
 from dptb.negf.SCF import _SCF
 from dptb.utils.constants import *
+from dptb.negf.utils import update_kmap
 from dptb.negf.utils import leggauss
 import logging
 import os
@@ -48,36 +49,40 @@ class Hamiltonian(object):
             log.error("The unit name is not correct !")
             raise ValueError
 
-    def initialize(self, kpoints):
+    def initialize(self, kpoints, block_tridiagnal=False):
+        assert len(np.array(kpoints).shape) == 2
 
         HS_device = {}
         HS_leads = {}
         HS_device["kpoints"] = kpoints
-        HS_leads["kpoints"] = kpoints
 
         self.apiH.update_struct(self.structase, mode="device", stru_options=j_must_have(self.stru_options, "device"))
         structure_device = self.apiH.structure
-        self.atom_norbs = [self.apiH.structure[i] for i in self.apiH.structure.atom_symbols]
+        self.atom_norbs = [self.apiH.structure.proj_atomtype_norbs[i] for i in self.apiH.structure.atom_symbols]
         self.apiH.get_HR()
         H, S = self.apiH.get_HK(kpoints=kpoints)
         d_start = int(np.sum(self.atom_norbs[:self.device_id[0]]))
         d_end = int(np.sum(self.atom_norbs)-np.sum(self.atom_norbs[self.device_id[1]:]))
         HD, SD = H[:,d_start:d_end, d_start:d_end], S[:, d_start:d_end, d_start:d_end]
         
+        if not block_tridiagnal:
+            HS_device.update({"HD":HD.cdouble()*self.h_factor, "SD":SD.cdouble()})
+        else:
+            hd, hu, hl, sd, su, sl = self.get_block_tridiagonal(HD, SD)
+            HS_device.update({"hd":hd, "hu":hu, "hl":hl, "sd":sd, "su":su, "sl":sl})
 
-        HS_device["device"].update({"HD":HD.cdouble()*self.h_factor})
-        HS_device["device"].update({"SD":SD.cdouble()})
+        torch.save(HS_device, os.path.join(self.result_path, "HS_device.pth"))
         
         structure_leads = {}
         for kk in self.stru_options:
             if kk.startswith("lead"):
-                HS_leads[kk] = {}
+                HS_leads = {}
                 lead_id = [int(x) for x in self.stru_options.get(kk)["id"].split("-")]
                 l_start = int(np.sum(self.atom_norbs[:lead_id[0]]))
                 l_end = int(l_start + np.sum(self.atom_norbs[lead_id[0]:lead_id[1]]) / 2)
                 HL, SL = H[:,l_start:l_end, l_start:l_end], S[:, l_start:l_end, l_start:l_end] # lead hamiltonian
                 HDL, SDL = H[:,d_start:d_end, l_start:l_end], S[:,d_start:d_end, l_start:l_end] # device and lead's hopping
-                HS_leads[kk].update({
+                HS_leads.update({
                     "HL":HL.cdouble()*self.h_factor, 
                     "SL":SL.cdouble(), 
                     "HDL":HDL.cdouble()*self.h_factor, 
@@ -92,44 +97,56 @@ class Hamiltonian(object):
                 nL = int(h.shape[1] / 2)
                 HLL, SLL = h[:, :nL, nL:], s[:, :nL, nL:] # H_{L_first2L_second}
                 assert (h[:, :nL, :nL] - HL).abs().max() < 1e-5 # check the lead hamiltonian get from device and lead calculation matches each other
-                HS_leads[kk].update({
+                HS_leads.update({
                     "HLL":HLL.cdouble()*self.h_factor, 
                     "SLL":SLL.cdouble()}
                     )
+                
+                HS_leads["kpoints"] = kpoints
+                
+                torch.save(HS_leads, os.path.join(self.result_path, "HS_"+kk+".pth"))
         
-        return HS_device, HS_leads, structure_device, structure_leads
+        return structure_device, structure_leads
     
     def get_hs_device(self, kpoint, V, block_tridiagonal=False):
-        
+        f = torch.load(os.path.join(self.result_path, "HS_device.pth"))
+        kpoints = f["kpoints"]
 
+        ix = None
+        for i, k in enumerate(kpoints):
+            if np.abs(np.array(k) - np.array(kpoint)).sum() < 1e-8:
+                ix = i
+                break
+
+        assert ix is not None
+
+        if not block_tridiagonal:
+            HD, SD = f["HD"][ix], f["SD"][ix]
+        else:
+            hd, sd, hl, su, sl, hu = f["hd"][ix], f["sd"][ix], f["hl"][ix], f["su"][ix], f["sl"][ix], f["hu"][ix]
+        
         if block_tridiagonal:
             return hd, sd, hl, su, sl, hu
         else:
             return HD, SD, None, None, None, None
     
     def get_hs_lead(self, kpoint, tab, V):
+        f = torch.load(os.path.join(self.result_path, "HS_{0}.pth".format(tab)))
+        kpoints = f["kpoints"]
+
+        ix = None
+        for i, k in enumerate(kpoints):
+            if np.abs(np.array(k) - np.array(kpoint)).sum() < 1e-8:
+                ix = i
+                break
+
+        assert ix is not None
+
+        hL, hLL, hDL, sL, sLL, sDL = f["HL"][ix], f["HLL"][ix], f["HDL"][ix], \
+                         f["SL"][ix], f["SLL"][ix], f["SDL"][ix]
+
 
         return hL, hLL, hDL, sL, sLL, sDL
-        pass
-
-    def read(self, kpoints):
-        if not isinstance(kpoints, np.ndarray) or not isinstance(kpoints, torch.Tensor):
-            kpoints = torch.tensor(kpoints)
-        if len(kpoints.shape) == 1:
-            kpoints = kpoints.reshape(1, -1)
-
-        file_kpts = torch.load(os.path.join(self.result_path, "HS.pth"))["kpoints"]
-        HS = {}
-        indices = []
-        for k in kpoints:
-            for i, j in enumerate(file_kpts):
-                if (k - j).abs().mean() < 1e-14:
-                    indices.append(i)
-
-
-        HS["device"]["HD"] = HS["device"]["HD"][indices]
-
-        pass
 
     def attach_potential():
         pass
@@ -137,5 +154,6 @@ class Hamiltonian(object):
     def write(self):
         pass
 
-    def get_hs_block_tridiagonal(self, kpoints):
-        pass
+    # def get_hs_block_tridiagonal(self, HD, SD):
+
+    #     return hd, hu, hl, sd, su, sl

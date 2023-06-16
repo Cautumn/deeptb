@@ -1,4 +1,4 @@
-from dptb.negf.RGF import recursive_gf, Green
+from dptb.negf.RGF import recursive_gf
 import logging
 import torch
 import os
@@ -20,7 +20,7 @@ class Device(object):
 
 
     def green_function(self, ee, kpoint, etaDevice=0., block_tridiagonal=True):
-        assert len(kpoint.reshape(-1)) == 3
+        assert len(np.array(kpoint).reshape(-1)) == 3
 
         # if V is not None:
         #     HD_ = self.attachPotential(HD, SD, V)

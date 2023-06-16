@@ -4,6 +4,7 @@ from dptb.negf.surface_green import selfEnergy
 import logging
 from dptb.negf.utils import update_kmap, update_temp_file
 import os
+import numpy as np
 
 log = logging.getLogger(__name__)
 
@@ -34,35 +35,26 @@ class Lead(object):
 
 
     def self_energy(self, kpoint, ee, eta_lead: float=1e-5, method: str="Lopez-Sancho"):
-        assert len(kpoint.reshape(-1)) == 3
+        assert len(np.array(kpoint).reshape(-1)) == 3
         # according to given kpoint and e_mesh, calculating or loading the self energy and surface green function to self.
         ik = update_kmap(self.result_path, kpoint=kpoint)
         SEpath = os.path.join(self.result_path, self.tab+"_SE_k"+str(ik)+".pth")
 
-        HL, HLL, HDL, SL, SLL, SDL = self.hamiltonian.get_hs_lead(kpoint, tab=self.tab)
-        self.segf = self._sgf_(
-            ee=ee,
-            HL=HL,
-            HLL=HLL,
-            SL=SL,
-            SLL=SLL,
-            HDL=HDL,
-            SDL=SDL
-        )
+        HL, HLL, HDL, SL, SLL, SDL = self.hamiltonian.get_hs_lead(kpoint, tab=self.tab, V=self.voltage)
 
         def fn(ee):
             se_list = []
             gf_list = []
             for e in ee:
-                se, gf = self._sgf_(
+                se, gf = selfEnergy(
                 ee=e,
-                HL=HL,
-                HLL=HLL,
-                SL=SL,
-                SLL=SLL,
-                HDL=HDL,
-                SDL=SDL,
-                voltage=self.structure.lead_options["voltage"],
+                hL=HL,
+                hLL=HLL,
+                sL=SL,
+                sLL=SLL,
+                hDL=HDL,
+                sDL=SDL,
+                voltage=self.voltage,
                 etaLead=eta_lead, 
                 method=method
             )

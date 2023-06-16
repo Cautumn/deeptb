@@ -221,13 +221,13 @@ def quad(
 def update_kmap(result_path, kpoint):
     if os.path.exists(os.path.join(result_path, "KMAP.pth")):
         kmap = torch.load(os.path.join(result_path, "KMAP.pth"))
-        ik = kmap.get(kpoint, None)
-        if ik is None:
-            ik = len(kmap["kmesh"])
-            kmap["kmesh"].append(kpoint)
-            kmap[kpoint] = ik
+        ik = np.argmin(np.abs(np.array(kmap) - np.array(kpoint).reshape(1,-1)).sum(axis=1))
+        
+        if ik > 1e-7:
+            ik = len(kmap)
+            kmap.append(kpoint)
     else:
-        kmap = {"kmesh":[kpoint], kpoint:0}
+        kmap = [kpoint]
         ik = 0
 
     torch.save(kmap, os.path.join(result_path, "KMAP.pth"))
@@ -245,11 +245,20 @@ def update_temp_file(update_fn, file_path, ee, tags, info):
         _type_: _description_
     """
 
+    ## fix, giving a comparing accuracy of these ee
+    ee = np.array(ee)
     if os.path.exists(file_path):
         file = torch.load(file_path)
-        eecal = set(ee) - set(file["e_mesh"])
+        dis = np.argmin(np.abs(np.array(file["e_mesh"]).reshape(1,-1) - ee.reshape(-1,1)), axis=1)
+        err = np.abs(ee - np.array(file["e_mesh"])[dis])
+        eecal = ee[err>1e-5]
     else:
-        eecal = set(ee)
+        eecal = set(np.array(ee))
+        file = {"e_mesh":[], "emap":{}}
+        err = [1] * len(ee)
+
+        for tag in tags:
+            file[tag] = []
 
     if len(eecal) != 0:
         log.info(msg=info)
@@ -258,14 +267,18 @@ def update_temp_file(update_fn, file_path, ee, tags, info):
         n = len(file["e_mesh"])
         file["e_mesh"] += list(eecal)
         for e in list(eecal):
-            file["emap"][e] = n
+            file["emap"][float(e)] = n
             n += 1
         for i in tags:
             file[i] += new[i]
+
+        torch.save(file, file_path)
     
     out = {}
     for i in tags:
-        out[i] = [file[i][file["emap"][e]] for e in ee]
+        out[i] = [file[i][file["emap"][float(e)]] if err[j]>1e-5 else file[i][dis[j]] for j, e in enumerate(ee)]
+
+
     
     return out
 
