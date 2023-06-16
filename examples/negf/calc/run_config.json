@@ -100,18 +100,18 @@
             },
             "lead_L": {
                 "id": "160-320",
-                "voltage": 0.0
+                "voltage": 0.05
             },
             "lead_R": {
                 "id": "320-480",
-                "voltage": 0.0
+                "voltage": -0.05
             }
         },
         "eta_lead": 1e-05,
         "eta_device": 0.0,
-        "read_HS": true,
-        "read_GF": true,
-        "read_SE": true,
+        "read_HS": false,
+        "read_GF": false,
+        "read_SE": false,
         "sgf_solver": "Sancho-Rubio",
         "scf": false,
         "scf_options": {

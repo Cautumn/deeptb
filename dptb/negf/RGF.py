@@ -170,16 +170,20 @@ def _recursive_gf(energy, mat_l_list, mat_d_list, mat_u_list, sd, su, sl, s_in=0
 
     if not isinstance(s_in, list) and not isinstance(s_out, list):
         return g_trans, \
-               grd, grl, gru, gr_left
+               grd, grl, gru, gr_left, \
+               None, None, None, None, \
+               None, None, None, None
 
     elif isinstance(s_in, list) and not isinstance(s_out, list):
         return g_trans, \
                grd, grl, gru, gr_left, \
-               gnd, gnl, gnu, gin_left
+               gnd, gnl, gnu, gin_left, \
+               None, None, None, None
 
     elif not isinstance(s_in, list) and isinstance(s_out, list):
         return g_trans, \
                grd, grl, gru, gr_left, \
+               None, None, None, None, \
                gpd, gpl, gpu, gip_left
 
     else:

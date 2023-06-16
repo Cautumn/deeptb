@@ -5,16 +5,18 @@ from xitorch.grad.jachess import jac
 
 class _SCF(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, fcn, x0, options, maxIter=100, err=1e-7, method='PDIIS', *params):
+    def forward(ctx, fcn, x0, scf_options, method='PDIIS', *params):
         # with torch.no_grad():
         #     x_ = fcn(x0, *params)
+        max_iter = scf_options["max_iter"]
+        abs_err = scf_options["abs_err"]
 
         x_ = fcn(x0, *params)
 
         if method == "default":
             it = 0
             old_x = x0
-            while (x_-old_x).norm() > err and it < maxIter:
+            while (x_-old_x).norm() > abs_err and it < max_iter:
                 it += 1
                 old_x = x_
                 x_ = fcn(x_, *params)
@@ -32,7 +34,7 @@ class _SCF(torch.autograd.Function):
                 return loss
 
             with torch.enable_grad():
-                while it < maxIter and loss > err:
+                while it < max_iter and loss > abs_err:
                     it += 1
                     loss = new_fcn(x_)
                     x_ = x_ - 1e-3 * torch.autograd.grad(loss, (x_,))[0]
@@ -51,7 +53,7 @@ class _SCF(torch.autograd.Function):
             i = 0
             loss = 1
             with torch.enable_grad():
-                while i < maxIter and loss > err:
+                while i < max_iter and loss > abs_err:
                     optim.zero_grad()
                     loss = new_fcn(x_)
                     loss.backward()
@@ -60,7 +62,7 @@ class _SCF(torch.autograd.Function):
 
         elif method == "PDIIS":
             with torch.no_grad():
-                x_ = PDIIS(lambda x: fcn(x, *params), p0=x_, maxIter=maxIter, **options)
+                x_ = PDIIS(lambda x: fcn(x, *params), p0=x_, **scf_options)
 
         elif method == 'LBFGS':
             x_ = x_.detach().requires_grad_()
@@ -75,7 +77,7 @@ class _SCF(torch.autograd.Function):
                 return loss
 
             with torch.enable_grad():
-                for i in range(maxIter):
+                for i in range(max_iter):
                     optim.step(new_fcn)
                     print(x_)
 
@@ -124,18 +126,18 @@ class _SCF(torch.autograd.Function):
         return None, None, None, None, None, None, *grad_out
 
 
-def PDIIS(fn, p0, a=0.05, n=6, maxIter=100, k=3, err=1e-6, relerr=1e-3, **options):
+def PDIIS(fn, p0, step_size=0.05, n_history=6, max_iter=100, mixing_period=3, abs_err=1e-6, rel_err=1e-3, **options):
     """The periodic pully mixing from https://doi.org/10.1016/j.cplett.2016.01.033.
 
     Args:
         fn (function): the iterative functions
         p0 (_type_): the initial point
-        a (float, optional): the mixing beta value, or step size. Defaults to 0.05.
-        n (int, optional): the size of the storage of history to compute the pesuedo hessian matrix. Defaults to 6.
-        maxIter (int, optional): the maximum iteration. Defaults to 100.
-        k (int, optional): the period of conducting pully mixing. The algorithm will conduct pully mixing every k iterations. Defaults to 3.
-        err (_type_, optional): the absolute err tolerance. Defaults to 1e-6.
-        relerr (_type_, optional): the relative err tolerance. Defaults to 1e-3.
+        step_size (float, optional): the mixing beta value, or step size. Defaults to 0.05.
+        n_history (int, optional): the size of the storage of history to compute the pesuedo hessian matrix. Defaults to 6.
+        max_iter (int, optional): the maximum iteration. Defaults to 100.
+        mixing_period (int, optional): the period of conducting pully mixing. The algorithm will conduct pully mixing every k iterations. Defaults to 3.
+        abs_err (_type_, optional): the absolute err tolerance. Defaults to 1e-6.
+        rel_err (_type_, optional): the relative err tolerance. Defaults to 1e-3.
 
     Returns:
         p _type_: the stable point
@@ -143,23 +145,23 @@ def PDIIS(fn, p0, a=0.05, n=6, maxIter=100, k=3, err=1e-6, relerr=1e-3, **option
     i = 0
     f = fn(p0) - p0
     p = p0
-    R = [None for _ in range(n)]
-    F = [None for _ in range(n)]
+    R = [None for _ in range(n_history)]
+    F = [None for _ in range(n_history)]
     print("SCF iter 0 abs err {0} | rel err {1}: ".format( 
             f.abs().max().detach().numpy(), 
             (f.abs() / p.abs()).max().detach().numpy())
             )
-    while (f.abs().max() > err or (f.abs() / p.abs()).max() > relerr) and i < maxIter:
-        if not (i+1) % k:
+    while (f.abs().max() > abs_err or (f.abs() / p.abs()).max() > rel_err) and i < max_iter:
+        if not (i+1) % mixing_period:
             F_ = torch.stack([t for t in F if t != None])
             R_ = torch.stack([t for t in R if t != None])
-            p_ = p + a*f - (R_.T+a*F_.T)@(F_ @ F_.T).inverse() @ F_ @ f
+            p_ = p + step_size*f - (R_.T+step_size*F_.T)@(F_ @ F_.T).inverse() @ F_ @ f
         else:
-            p_ = p + a * f
+            p_ = p + step_size * f
 
         f_ = fn(p_) - p_
-        F[i % n] = f_ - f
-        R[i % n] = p_ - p
+        F[i % n_history] = f_ - f
+        R[i % n_history] = p_ - p
 
         p = p_.clone()
         f = f_.clone()
@@ -171,10 +173,7 @@ def PDIIS(fn, p0, a=0.05, n=6, maxIter=100, k=3, err=1e-6, relerr=1e-3, **option
             (f.abs() / p.abs()).max().detach().numpy())
             )
 
-    if i == maxIter:
+    if i == max_iter:
         print("Not Converged very well here.")
 
-
     return p
-
-

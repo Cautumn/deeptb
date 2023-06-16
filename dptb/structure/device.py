@@ -43,6 +43,7 @@ class Device(BaseStruct):
         self.atom_numbers = np.array(self.struct.get_atomic_numbers(), dtype=int)
         self.atomtype = get_uniq_symbol(atomsymbols=self.atom_symbols)
         self._projection_()
+        
         self.proj_atom_symbols = self.projected_struct.get_chemical_symbols()
         self.proj_atom_numbers = self.projected_struct.get_atomic_numbers()
         self.proj_atom_neles_per = np.array([self.proj_atom_neles[ii] for ii in self.proj_atom_symbols])

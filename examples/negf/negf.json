@@ -77,11 +77,11 @@
             },
             "lead_L":{
                 "id":"160-320",
-                "voltage":0.0
+                "voltage":0.05
             },
             "lead_R":{
                 "id":"320-480",
-                "voltage":0.1
+                "voltage":-0.05
             }
         },
         "eta_lead":1e-5,

@@ -15,6 +15,7 @@ class surface_green(torch.autograd.Function):
         找找改进
         1. ee can be a list, to handle a batch of samples
         '''
+
         if method == 'GEP':
             gs = calcg0(ee, H, S, h01, s01)
         else:
@@ -56,15 +57,13 @@ class surface_green(torch.autograd.Function):
                         print("Lopez-Sancho", myConvTest,
                               "Error: gs iteration {0}".format(iteration))
                         raise ArithmeticError("Criteria not met. Please check output...")
-
+                    
         ctx.save_for_backward(gs, H, h01, S, s01, ee)
-
         return gs
 
     @staticmethod
     def backward(ctx, grad_outputs):
         gs_, H_, h01_, S_, s01_, ee_ = ctx.saved_tensors
-        left = ctx.left
 
         def sgfn(gs, *params):
             [H, h01, S, s01, ee] = params
@@ -99,7 +98,7 @@ class surface_green(torch.autograd.Function):
             2. Is the matrix index direction correct? Also, is T necessarily becomes H when comes to complex matrix?
             '''
             # return *grad, None, None
-            return *grad_out, None, None
+            return *grad_out, None
 
     @staticmethod
     def jvp(ctx, grad_input):
@@ -130,13 +129,21 @@ class surface_green(torch.autograd.Function):
 
             return torch.mean(out, dim=0)
 
-
-
 def selfEnergy(hL, hLL, sL, sLL, ee, hDL=None, sDL=None, etaLead=1e-8, Bulk=False, voltage=0.0, dtype=torch.complex128, device='cpu', method='Lopez-Sancho'):
+    # if not isinstance(ee, torch.Tensor):
+    #     eeshifted = torch.scalar_tensor(ee, dtype=dtype) - voltage  # Shift of self energies due to voltage(V)
+    # else:
+    #     eeshifted = ee - voltage
+    if not isinstance(voltage, torch.Tensor):
+        voltage = torch.scalar_tensor(voltage, dtype=dtype)
+
     if not isinstance(ee, torch.Tensor):
-        eeshifted = torch.scalar_tensor(ee, dtype=dtype) - voltage  # Shift of self energies due to voltage(V)
+        eeshifted = torch.scalar_tensor(ee, dtype=dtype) - voltage
     else:
         eeshifted = ee - voltage
+
+    hL = hL - voltage * sL
+    hLL = hLL - voltage * sLL
 
     if hDL == None:
         ESH = (eeshifted * sL - hL)
@@ -153,7 +160,7 @@ def selfEnergy(hL, hLL, sL, sLL, ee, hDL=None, sDL=None, etaLead=1e-8, Bulk=Fals
     return Sig, SGF  # R(nuo, nuo)
 
 
-def calcg0(ee, h00, s00, h01, s01, left=True):
+def calcg0(ee, h00, s00, h01, s01):
     # here, for a single surface green function, for a specific |k>, ee is a matrix
     # Calculate surface Green's function
     # Euro Phys J B 62, 381 (2008)
@@ -162,8 +169,6 @@ def calcg0(ee, h00, s00, h01, s01, left=True):
     # -h10  e-h00(e-h11) ...
 
     NN, ee = h00.shape[0], ee.real + max(torch.max(ee.imag).item(), 1e-8) * 1.0j
-    if left:
-        h01, s01 = h01.conj().T, s01.conj().T  # dagger is hermitian conjugation
 
     # Solve generalized eigen-problem
     # ( e I - h00 , -I) (eps)          (h01 , 0) (eps)
@@ -200,29 +205,20 @@ def calcg0(ee, h00, s00, h01, s01, left=True):
     FP = EP.mm(torch.diag(ev)).mm(torch.inverse(torch.mm(EP.conj().T, EP))).mm(EP.conj().T)
     g00 = torch.inverse(ee * s00 - h00 - torch.mm(h01 - ee * s01, FP))
 
-    if left:
-        g00 = iterative_gf(ee, g00, h00, h01.conj().T, s00, s01.conj().T, iter=3, left=left)
-    else:
-        g00 = iterative_gf(ee, g00, h00, h01, s00, s01, iter=3, left=left)
+    g00 = iterative_gf(ee, g00, h00, h01, s00, s01, iter=3)
 
     # Check!
     err = torch.max(torch.abs(g00 - torch.inverse(ee * s00 - h00 - \
                                                   torch.mm(h01 - ee * s01, g00).mm(
                                                       h01.conj().T - ee * s01.conj().T))))
-    if err > 1.0e-8 and left:
-        print("WARNING: Lopez-scheme not-so-well converged for LEFT electrode at E = {0} eV:".format(ee.real.numpy()), err.numpy())
-    if err > 1.0e-8 and not left:
+    if err > 1.0e-8:
         print("WARNING: Lopez-scheme not-so-well converged for RIGHT electrode at E = {0} eV:".format(ee.real.numpy()), err.numpy())
     return g00
 
 
-def iterative_gf(ee, gs, h00, h01, s00, s01, iter=1, left=True):
+def iterative_gf(ee, gs, h00, h01, s00, s01, iter=1):
     for i in range(iter):
-        if not left:
-            gs = ee*s00 - h00 - (ee * s01 - h01) @ gs @ (ee * s01.conj().T - h01.conj().T)
-            gs = tLA.pinv(gs)
-        else:
-            gs = ee*s00 - h00 - (ee * s01.conj().T - h01.conj().T) @ gs @ (ee * s01 - h01)
-            gs = tLA.pinv(gs)
+        gs = ee*s00 - h00 - (ee * s01 - h01) @ gs @ (ee * s01.conj().T - h01.conj().T)
+        gs = tLA.pinv(gs)
 
     return gs

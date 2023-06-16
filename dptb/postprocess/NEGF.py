@@ -3,11 +3,17 @@ import torch
 from dptb.negf.pole_summation import pole_maker
 from dptb.negf.RGF import recursive_gf
 from dptb.negf.surface_green import selfEnergy
-from dptb.negf.utils import quad
+from dptb.negf.utils import quad, gauss_xw
+from dptb.negf.CFR import ozaki_residues
+from dptb.negf.hamiltonian import Hamiltonian
+from dptb.negf.pole_summation import pole_maker
+from dptb.negf.Device import Device
+from dptb.negf.Lead import Lead
 from ase.io import read
 from dptb.negf.poisson import density2Potential, getImg
 from dptb.negf.SCF import _SCF
 from dptb.utils.constants import *
+from dptb.negf.utils import leggauss
 import logging
 import os
 import torch.optim as optim
@@ -16,9 +22,7 @@ from tqdm import tqdm
 import numpy as np
 from dptb.utils.make_kpoints import kmesh_sampling
 
-'''
-1. split the leads, the leads and contact, and contact. the atoms
-'''
+
 log = logging.getLogger(__name__)
 
 class NEGF(object):
@@ -39,16 +43,16 @@ class NEGF(object):
         
         
         
-
         # get the parameters
         self.el_T = jdata["el_T"]
+        self.kBT = k * self.el_T / eV
         self.e_fermi = jdata["e_fermi"]
         self.stru_options = j_must_have(jdata, "stru_options")
         self.pbc = self.stru_options["pbc"]
         if not any(self.pbc):
-            self.kpoint = np.array([[0,0,0]])
+            self.kpoints = np.array([[0,0,0]])
         else:
-            self.kpoint = kmesh_sampling(self.jdata["kmesh"])
+            self.kpoints = kmesh_sampling(self.jdata["kmesh"])
 
         self.init_indices()
         self.unit = jdata["unit"]
@@ -57,186 +61,89 @@ class NEGF(object):
         
 
         # computing the hamiltonian
-        if os.path.exists(os.path.join(self.results_path, "HS.pth")) and jdata["read_HS"]:
-            HS = torch.load(os.path.join(self.results_path, "HS.pth"))
-        elif jdata["read_HS"]:
-            log.error("The user should provide HS file")
-            raise RuntimeError
-        else:
-            HS = {}
+        self.hamiltonian = Hamiltonian(apiH=self.apiH, structase=self.structase, stru_options=self.stru_options)
+        _, _, struct_device, struct_leads = self.hamiltonian.initialize(self.kpoints)
+        self.generate_energy_grid()
 
-            HS["device"] = {}
-            self.apiH.update_struct(self.structase, mode="device", stru_options=j_must_have(self.stru_options, "device"))
-            self.atom_norbs = [self.apiH.structure.proj_atomtype_norbs[i] for i in self.apiH.structure.atom_symbols]
-            self.apiH.get_HR()
-            H, S = self.apiH.get_HK(kpoints=self.kpoint)
-            d_start = int(np.sum(self.atom_norbs[:self.device_id[0]]))
-            d_end = int(np.sum(self.atom_norbs)-np.sum(self.atom_norbs[self.device_id[1]:]))
-            HD, SD = H[0,d_start:d_end, d_start:d_end], S[0, d_start:d_end, d_start:d_end]
-            
+        self.device = Device(self.hamiltonian, struct_device)
+        self.device.set_leadLR(
+            lead_L=Lead(self.hamiltonian, tab="lead_L", structure=struct_leads["lead_L"]),
+            lead_R=Lead(self.hamiltonian, tab="lead_R", structure=struct_leads["lead_L"])
+            )
 
-            HS["device"].update({"HD":HD.cdouble()})
-            HS["device"].update({"SD":SD.cdouble()})
-            self.kBT = k * self.el_T / eV
 
-            for kk in self.stru_options:
-                if kk.startswith("lead"):
-                    HS[kk] = {}
-                    lead_id = [int(x) for x in self.stru_options.get(kk)["id"].split("-")]
-                    l_start = int(np.sum(self.atom_norbs[:lead_id[0]]))
-                    l_end = int(l_start + np.sum(self.atom_norbs[lead_id[0]:lead_id[1]]) / 2)
-                    HL, SL = H[0,l_start:l_end, l_start:l_end], S[0, l_start:l_end, l_start:l_end] # lead hamiltonian
-                    HDL, SDL = H[0,d_start:d_end, l_start:l_end], S[0,d_start:d_end, l_start:l_end] # device and lead's hopping
-                    HS[kk].update({
-                        "HL":HL.cdouble(), 
-                        "SL":SL.cdouble(), 
-                        "HDL":HDL.cdouble(), 
-                        "SDL":SDL.cdouble()}
-                        )
-
-                    stru_lead = self.structase[lead_id[0]:lead_id[1]]
-                    self.apiH.update_struct(stru_lead, mode="lead", stru_options=self.stru_options.get(kk))
-                    self.apiH.get_HR()
-                    h, s = self.apiH.get_HK(kpoints=self.kpoint)
-                    nL = int(h.shape[1] / 2)
-                    HLL, SLL = h[0, :nL, nL:], s[0, :nL, nL:] # H_{L_first2L_second}
-                    assert (h[0, :nL, :nL] - HL).abs().max() < 1e-5 # check the lead hamiltonian get from device and lead calculation matches each other
-                    HS[kk].update({
-                        "HLL":HLL.cdouble(), 
-                        "SLL":SLL.cdouble()}
-                        )
-                    
-            # check whether all matrices are correct
-            
-            torch.save(obj=HS, f=os.path.join(self.results_path, "HS.pth"))
-        
-        self.HS = HS
+    def generate_energy_grid(self):
 
         # computing parameters for NEGF
-        self.e_mesh = torch.linspace(start=self.jdata["emin"]+self.e_fermi, end=self.jdata["emax"]+self.e_fermi, steps=int((self.jdata["emax"]-self.jdata["emin"])/self.jdata["espacing"]))
-        if self.unit == "Hartree":
-            self.e_mesh = self.e_mesh / (13.605662285137 * 2)
-        elif self.unit == "eV":
-            self.e_mesh = self.e_mesh
-        elif self.unit == "Ry":
-            self.e_mesh = self.e_mesh / 13.605662285137
-        else:
-            log.error("The unit name is not correct !")
-            raise ValueError
+        
+        cal_pole = False
+        cal_neq_grid = False
+        cal_int_grid = False
+        cal_uni_grid = False
 
-    def init_indices(self):
-        self.device_id = [int(x) for x in self.stru_options.get("device")["id"].split("-")]
-        self.lead_ids = []
-        for kk in self.stru_options:
-            if kk.startswith("lead"):
-                self.lead_ids.append([int(x) for x in self.stru_options.get(kk)["id"].split("-")])
+        if self.scf:
+            v_list = [self.stru_options[i].get(["voltage"], None) for i in self.stru_options]
+            v_list = [i for i in v_list if i is not None]
+            v_list_b = [i == v_list[0] for i in v_list]
+            if not all(v_list_b):
+                cal_pole = True
+                cal_neq_grid = True
+        elif "density" in self.properties or "potential" in self.properties:
+            cal_pole = True
+            v_list = [self.stru_options[i].get(["voltage"], None) for i in self.stru_options]
+            v_list = [i for i in v_list if i is not None]
+            v_list_b = [i == v_list[0] for i in v_list]
+            if not all(v_list_b):
+                cal_neq_grid = True
+        
+        if "current" in self.properties:
+            cal_int_grid = True
+
+        if "DOS" in self.properties or "TC" in self.properties:
+            cal_uni_grid = True
+            self.uni_grid = torch.linspace(start=self.jdata["emin"], end=self.jdata["emax"], steps=int((self.jdata["emax"]-self.jdata["emin"])/self.jdata["espacing"]))
+
+        if cal_pole:
+            self.poles, self.residues = ozaki_residues(M_cut=200)
+        
+        if cal_neq_grid:
+            xl = min(v_list)-4*self.kBT
+            xu = max(v_list)+4*self.kBT
+            self.neq_grid, self.neq_weight = gauss_xw(xl=xl, xu=xu, n=(xu-xl)/self.jdata["espacing"])
+        
+        if cal_int_grid:
+            self.int_grid, self.int_weight = gauss_xw(xl=xl, xu=xu, n=(xu-xl)/self.jdata["espacing"])
+
+        e_mesh = torch.concat([self.uni_grid, self.poles, self.neq_grid, self.int_grid], dim=0)
+        e_mesh = torch.unique(e_mesh)
+        # how to del with e_fermi
+
+        self.e_mesh = e_mesh - self.e_fermi
+        self.eindex = {}
+        for ie, e in enumerate(self.e_mesh):
+            self.eindex[e] = ie
+
+    def get_poles(self, method):
+        if method == "cfr":
+            poles, residues = ozaki_residues(M_cut=200)
+        elif method == "Areshkin":
+            poles, residues = pole_maker(Emin=-25, ChemPot=0., kT=self.kBT, reltol=1e-14)
+        else:
+            log.error("The pole integration method should be within cfr/Areshkin")
+            raise ValueError
+        
+        return poles, residues
 
     def compute(self):
-        self.compute_electrode_self_energy()
-        self.compute_green_function()
-        self.compute_properties()
-        
+        # compute the grid
 
-
-    def self_energy(
-            self, 
-            ee: List[torch.Tensor], 
-            HL: torch.Tensor,
-            HLL: torch.Tensor,
-            SL: torch.Tensor,
-            SLL: torch.Tensor,
-            HDL = None,
-            SDL = None,
-            u: torch.Tensor = torch.scalar_tensor(0.), 
-            etaLead : float = 1e-5,
-            method: str = 'Lopez-Sancho'
-            ):
-        se_list = []
-
-        for e in ee:
-            se, _ = selfEnergy(hL=HL, hLL=HLL, sL=SL, sLL=SLL, hDL=HDL, sDL=SDL, ee=e, voltage=u,
-                                etaLead=etaLead, method=method)
-            se_list.append(se)
-
-        se_list = torch.stack(se_list)
-
-        return se_list
-    
-    def green_function(self, ee, HD, SD, SeE, V=None, etaDevice=0.):
-
-        if V is not None:
-            HD_ = self.attachPotential(HD, SD, V)
-        else:
-            HD_ = HD
-        # for i, e in tqdm(enumerate(ee), desc="Compute green functions: "):
-        green = []
-        for i, e in enumerate(ee):
-            ans = recursive_gf(e, hl=[], hd=[HD_], hu=[],
-                                sd=[SD], su=[], sl=[], 
-                                left_se=SeE["lead_L"][i], right_se=SeE["lead_R"][i], seP=None, s_in=None,
-                                s_out=None, eta=etaDevice)
-            green.append(ans)
-
-        return green
-    
-    def compute_green_function(self):
-        log.info(msg="Computing Green Functions")
-        if self.jdata["scf"]:
-            V = self.SCF()
-        else:
-            V = None
-
-        if not self.jdata["read_GF"]:
-            self.green = self.green_function(self.e_mesh, self.HS["device"]["HD"], self.HS["device"]["SD"], self.SeE, V=V, etaDevice=self.jdata["eta_device"])
-            torch.save(obj=self.green, f=os.path.join(self.results_path, "./GF.pth"))
-        else:
-            self.green = torch.load(os.path.join(self.results_path, "./GF.pth"))
-
-        return True
+        for k in self.kpoints:
+            self.device.lead_L.self_energy(ee=self.e_mesh, kpoint=k)
+            self.device.green_function(ee=self.e_mesh)
+            self.compute_properties()
     
     def fermi_dirac(self, x) -> torch.Tensor:
         return 1 / (1 + torch.exp(x / self.kBT))
-    
-    def attachPotential(self, hd, sd, V):
-
-        hd_V = []
-        
-        for i in range(len(hd)):
-            
-            hd_V.append(hd[i] - sd[i] * V[i])
-            # hd_V.append(hd[i] - V[i])
-
-        return hd_V
-    
-    def compute_electrode_self_energy(self):
-        # compute SE for properties calculation:
-        
-        log.info(msg="Computing Electrode Self-Energy")
-
-        if not self.jdata["read_SE"]:
-            SeE = {}
-            SeE["emesh"] = self.e_mesh
-            for kk in self.HS:
-                if kk.startswith("lead"):
-                    SeE[kk] = self.self_energy(
-                        self.e_mesh, 
-                        HL=self.HS[kk]["HL"], 
-                        HLL=self.HS[kk]["HLL"],
-                        SL=self.HS[kk]["SL"],
-                        SLL=self.HS[kk]["SLL"],
-                        HDL=self.HS[kk]["HDL"],
-                        SDL=self.HS[kk]["SDL"],
-                        u=self.stru_options[kk]["voltage"],
-                        etaLead=self.jdata["eta_lead"],
-                        method=self.jdata["sgf_solver"]
-                        )
-        
-            torch.save(obj=SeE, f=os.path.join(self.results_path, "./el_SE.pth"))
-        else:
-            SeE = torch.load(os.path.join(self.results_path, "./el_SE.pth"))
-        self.SeE = SeE
-
-        return True
     
     def compute_properties(self):
         
@@ -248,39 +155,12 @@ class NEGF(object):
         torch.save(obj=out, f=os.path.join(self.results_path, "./properties.pth"))
 
     def compute_DOS(self):
-        grd = [i[1] for i in self.green]
-        return [self.DOS(grd=grd[i], SD=[self.HS["device"]["SD"]]) for i in range(len(grd))]
+        dos = [self.DOS(grd=self.green[self.eindex[e]][1], SD=[self.HS["device"]["SD"]]) for e in self.uni_grid]
+        return dos
     
     def compute_TC(self):
-        gtrains = [i[0] for i in self.green]
-        return [self.TC(seL=self.SeE["lead_L"][i], seR=self.SeE["lead_R"][i], gtrains=gtrains[i]) for i in range(len(gtrains))]
-    
-    def DOS(self, grd, SD):
-        dos = 0
-        for jj in range(len(grd)):
-            temp = grd[jj] @ SD[jj]
-            dos -= torch.trace(temp.imag) / pi
-
-        return dos
-
-    def TC(self, seL, seR, gtrains):
-        tx, ty = gtrains.shape
-        lx, ly = seL.shape
-        rx, ry = seR.shape
-        x0 = min(lx, tx)
-        x1 = min(rx, ty)
-
-        gammaL = torch.zeros(size=(tx, tx), dtype=self.cdtype, device=self.device)
-        gammaL[:x0, :x0] += self.sigmaLR2Gamma(seL)[:x0, :x0]
-        gammaR = torch.zeros(size=(ty, ty), dtype=self.cdtype, device=self.device)
-        gammaR[-x1:, -x1:] += self.sigmaLR2Gamma(seR)[-x1:, -x1:]
-
-        TC = torch.trace(gammaL @ gtrains @ gammaR @ gtrains.conj().T).real
-
-        return TC
-
-    def sigmaLR2Gamma(self, se):
-        return -1j * (se - se.conj())
+        tc = [self.TC(seL=self.SeE["lead_L"][self.eindex[e]], seR=self.SeE["lead_R"][self.eindex[e]], gtrains=self.green[self.eindex[e]][0]) for e in self.uni_grid]
+        return tc
 
     def SCF(self):
         pass

@@ -15,6 +15,11 @@ import re
 import os
 import ase
 from scipy.interpolate import interp1d
+import logging
+
+
+
+log = logging.getLogger(__name__)
 
 anglrMId = {'s':0,'p':1,'d':2,'f':3}
 MaxShells  = 3
@@ -124,6 +129,17 @@ def leggauss(fcn, xl, xu, params, n=100, **unused):
         res += wlg[i] * fcn(xs[i], *params)
     return res
 
+def gauss_xw(xl, xu, n=100):
+    ndim = len(xu.shape)
+    xlg, wlg = np.polynomial.legendre.leggauss(n)
+    xlg = torch.tensor(xlg, dtype=xu.dtype, device=xu.device)[(...,) + (None,) * ndim]  # (n, *nx)
+    wlg = torch.tensor(wlg, dtype=xu.dtype, device=xu.device)[(...,) + (None,) * ndim]  # (n, *nx)
+    wlg *= 0.5 * (xu - xl)
+    xs = xlg * (0.5 * (xu - xl)) + (0.5 * (xu + xl))  # (n, *nx)
+
+    return xs, wlg
+
+
 def quad(
         fcn: Union[Callable[..., torch.Tensor], Callable[..., Sequence[torch.Tensor]]],
         xl: Union[float, int, torch.Tensor],
@@ -201,6 +217,57 @@ def quad(
     else:
         return _Quadrature.apply(pfunc, xl, xu, fwd_options, bck_options, nparams,
                                  dtype, device, *params, *pfunc.objparams())
+    
+def update_kmap(result_path, kpoint):
+    if os.path.exists(os.path.join(result_path, "KMAP.pth")):
+        kmap = torch.load(os.path.join(result_path, "KMAP.pth"))
+        ik = kmap.get(kpoint, None)
+        if ik is None:
+            ik = len(kmap["kmesh"])
+            kmap["kmesh"].append(kpoint)
+            kmap[kpoint] = ik
+    else:
+        kmap = {"kmesh":[kpoint], kpoint:0}
+        ik = 0
+
+    torch.save(kmap, os.path.join(result_path, "KMAP.pth"))
+
+    return ik
+
+def update_temp_file(update_fn, file_path, ee, tags, info):
+    """This function read the file for temperary results, computing the energy point need to be computed, and update the temperary file.s
+    Args:
+        file_path (str): _description_
+        ee (list): list of energy point
+        tags (str): the tag of files need to be updated
+
+    Returns:
+        _type_: _description_
+    """
+
+    if os.path.exists(file_path):
+        file = torch.load(file_path)
+        eecal = set(ee) - set(file["e_mesh"])
+    else:
+        eecal = set(ee)
+
+    if len(eecal) != 0:
+        log.info(msg=info)
+        # update temp file
+        new = update_fn(eecal)
+        n = len(file["e_mesh"])
+        file["e_mesh"] += list(eecal)
+        for e in list(eecal):
+            file["emap"][e] = n
+            n += 1
+        for i in tags:
+            file[i] += new[i]
+    
+    out = {}
+    for i in tags:
+        out[i] = [file[i][file["emap"][e]] for e in ee]
+    
+    return out
 
 class _Quadrature(torch.autograd.Function):
     # NOTE: _Quadrature method do not involve changing the state (objparams) of
