@@ -68,7 +68,7 @@ class Hamiltonian(object):
         if not block_tridiagnal:
             HS_device.update({"HD":HD.cdouble()*self.h_factor, "SD":SD.cdouble()})
         else:
-            hd, hu, hl, sd, su, sl = self.get_block_tridiagonal(HD, SD)
+            hd, hu, hl, sd, su, sl = self.get_block_tridiagonal(HD*self.h_factor, SD)
             HS_device.update({"hd":hd, "hu":hu, "hl":hl, "sd":sd, "su":su, "sl":sl})
 
         torch.save(HS_device, os.path.join(self.result_path, "HS_device.pth"))
@@ -96,7 +96,7 @@ class Hamiltonian(object):
                 h, s = self.apiH.get_HK(kpoints=kpoints)
                 nL = int(h.shape[1] / 2)
                 HLL, SLL = h[:, :nL, nL:], s[:, :nL, nL:] # H_{L_first2L_second}
-                assert (h[:, :nL, :nL] - HL).abs().max() < 1e-5 # check the lead hamiltonian get from device and lead calculation matches each other
+                assert (h[:, :nL, :nL] - HL).abs().max() < 1e-7 # check the lead hamiltonian get from device and lead calculation matches each other
                 HS_leads.update({
                     "HLL":HLL.cdouble()*self.h_factor, 
                     "SLL":SLL.cdouble()}
@@ -128,7 +128,7 @@ class Hamiltonian(object):
         if block_tridiagonal:
             return hd, sd, hl, su, sl, hu
         else:
-            return HD, SD, None, None, None, None
+            return [HD], [SD], None, None, None, None
     
     def get_hs_lead(self, kpoint, tab, V):
         f = torch.load(os.path.join(self.result_path, "HS_{0}.pth".format(tab)))

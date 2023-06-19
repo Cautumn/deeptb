@@ -54,7 +54,7 @@ class surface_green(torch.autograd.Function):
                                 "WARNING: Lopez-scheme not-so-well converged at E = %.4f eV:" % ee.real.item(),
                                 myConvTest.item())
                     else:
-                        print("Lopez-Sancho", myConvTest,
+                        print("Lopez-Sancho %.8f " % myConvTest.item(),
                               "Error: gs iteration {0}".format(iteration))
                         raise ArithmeticError("Criteria not met. Please check output...")
                     
@@ -134,6 +134,7 @@ def selfEnergy(hL, hLL, sL, sLL, ee, hDL=None, sDL=None, etaLead=1e-8, Bulk=Fals
     #     eeshifted = torch.scalar_tensor(ee, dtype=dtype) - voltage  # Shift of self energies due to voltage(V)
     # else:
     #     eeshifted = ee - voltage
+
     if not isinstance(voltage, torch.Tensor):
         voltage = torch.scalar_tensor(voltage, dtype=dtype)
 
@@ -212,7 +213,7 @@ def calcg0(ee, h00, s00, h01, s01):
                                                   torch.mm(h01 - ee * s01, g00).mm(
                                                       h01.conj().T - ee * s01.conj().T))))
     if err > 1.0e-8:
-        print("WARNING: Lopez-scheme not-so-well converged for RIGHT electrode at E = {0} eV:".format(ee.real.numpy()), err.numpy())
+        print("WARNING: not-so-well converged for RIGHT electrode at E = {0} eV:".format(ee.real.numpy()), err.numpy())
     return g00
 
 

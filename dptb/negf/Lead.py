@@ -63,23 +63,19 @@ class Lead(object):
 
             return {"se":se_list, "gf":gf_list}
 
-
-        
         self.segf = update_temp_file(update_fn=fn, file_path=SEpath, ee=ee, tags=["se", "gf"], info="Computing Electrode Self-Energy")
-
-    
 
     def sigmaLR2Gamma(self, se):
         return -1j * (se - se.conj())
     
     @property
     def se(self):
-        return self.segf["se"]
+        return torch.stack(self.segf["se"])
     
     @property
     def gf(self):
-        return self.segf["gf"]
+        return torch.stack(self.segf["gf"])
     
     @property
     def gamma(self):
-        return [self.sigmaLR2Gamma(se) for se in self.se]
+        return self.sigmaLR2Gamma(self.se)

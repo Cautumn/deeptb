@@ -195,6 +195,7 @@ def _recursive_gf(energy, mat_l_list, mat_d_list, mat_u_list, sd, su, sl, s_in=0
 
 def recursive_gf(energy, hl, hd, hu, sd, su, sl, left_se, right_se, seP=None, s_in=0, s_out=0,
                  eta=1e-5):
+    
     """The recursive Green's function algorithm is taken from
     M. P. Anantram, M. S. Lundstrom and D. E. Nikonov, Proceedings of the IEEE, 96, 1511 - 1550 (2008)
     DOI: 10.1109/JPROC.2008.927355
@@ -249,8 +250,6 @@ def recursive_gf(energy, hl, hd, hu, sd, su, sl, left_se, right_se, seP=None, s_
         Left-conencted blocks of the retarded Green's function
     """
 
-
-
     temp_mat_d_list = [hd[i] * 1. for i in range(len(hd))]
     temp_mat_l_list = [hl[i] * 1. for i in range(len(hl))]
     temp_mat_u_list = [hu[i] * 1. for i in range(len(hu))]
@@ -283,18 +282,6 @@ def recursive_gf(energy, hl, hd, hu, sd, su, sl, left_se, right_se, seP=None, s_
 
     if isinstance(right_se, torch.Tensor):
         temp_mat_d_list[-1][-idx1:, -idy1:] = temp_mat_d_list[-1][-idx1:, -idy1:] - right_se[-idx1:, -idy1:]
-
-    # for id, kk in enumerate(SeE):
-    #     if isinstance(kk, torch.Tensor):
-    #         s01, s02 = temp_mat_d_list[0].shape
-    #         se01, se02 = kk.shape
-    #         idx0, idy0 = min(s01, se01), min(s02, se02)
-    #         # import matplotlib.pyplot as plt
-    #         # plt.matshow(left_se.real.detach())
-    #         # plt.show()
-    #         # plt.matshow(left_se.imag.detach())
-    #         # plt.show()
-    #         temp_mat_d_list[0][:idx0,:idy0] = temp_mat_d_list[0][:idx0,:idy0] - kk[:idx0,:idy0]
 
     if seP is not None:
         for i in range(len(temp_mat_d_list)):

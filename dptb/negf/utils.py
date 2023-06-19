@@ -245,15 +245,18 @@ def update_temp_file(update_fn, file_path, ee, tags, info):
         _type_: _description_
     """
 
+    # mismatch of the order of new, emap, e_mesh
+
     ## fix, giving a comparing accuracy of these ee
     ee = np.array(ee)
     if os.path.exists(file_path):
         file = torch.load(file_path)
         dis = np.argmin(np.abs(np.array(file["e_mesh"]).reshape(1,-1) - ee.reshape(-1,1)), axis=1)
+        # print(ee, file["e_mesh"], dis)
         err = np.abs(ee - np.array(file["e_mesh"])[dis])
-        eecal = ee[err>1e-5]
+        eecal = list(set(ee[err>1e-5]))
     else:
-        eecal = set(np.array(ee))
+        eecal = list(set(ee))
         file = {"e_mesh":[], "emap":{}}
         err = [1] * len(ee)
 
@@ -265,17 +268,23 @@ def update_temp_file(update_fn, file_path, ee, tags, info):
         # update temp file
         new = update_fn(eecal)
         n = len(file["e_mesh"])
-        file["e_mesh"] += list(eecal)
-        for e in list(eecal):
+        # update e_mesh
+        file["e_mesh"] += eecal
+        # update emap
+        for e in eecal:
             file["emap"][float(e)] = n
             n += 1
         for i in tags:
             file[i] += new[i]
 
         torch.save(file, file_path)
+
+    # print((torch.stack(new[tags[0]])-torch.stack([file[tags[0]][file["emap"][float(e)]] for e in eecal])).abs().max())
     
     out = {}
     for i in tags:
+        # print([file["emap"][float(e)] for e in ee])
+        # print(file["e_mesh"])
         out[i] = [file[i][file["emap"][float(e)]] if err[j]>1e-5 else file[i][dis[j]] for j, e in enumerate(ee)]
 
 
