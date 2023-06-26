@@ -129,22 +129,16 @@ class surface_green(torch.autograd.Function):
 
             return torch.mean(out, dim=0)
 
-def selfEnergy(hL, hLL, sL, sLL, ee, hDL=None, sDL=None, etaLead=1e-8, Bulk=False, voltage=0.0, dtype=torch.complex128, device='cpu', method='Lopez-Sancho'):
+def selfEnergy(hL, hLL, sL, sLL, ee, hDL=None, sDL=None, etaLead=1e-8, Bulk=False, chemiPot=0.0, dtype=torch.complex128, device='cpu', method='Lopez-Sancho'):
     # if not isinstance(ee, torch.Tensor):
     #     eeshifted = torch.scalar_tensor(ee, dtype=dtype) - voltage  # Shift of self energies due to voltage(V)
     # else:
     #     eeshifted = ee - voltage
 
-    if not isinstance(voltage, torch.Tensor):
-        voltage = torch.scalar_tensor(voltage, dtype=dtype)
-
     if not isinstance(ee, torch.Tensor):
-        eeshifted = torch.scalar_tensor(ee, dtype=dtype) - voltage
+        eeshifted = torch.scalar_tensor(ee, dtype=dtype) + chemiPot
     else:
-        eeshifted = ee - voltage
-
-    hL = hL - voltage * sL
-    hLL = hLL - voltage * sLL
+        eeshifted = ee + chemiPot
 
     if hDL == None:
         ESH = (eeshifted * sL - hL)

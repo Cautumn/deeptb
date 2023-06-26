@@ -1,12 +1,12 @@
 from typing import List
 import torch
-from dptb.negf.pole_summation import pole_maker
+from dptb.negf.Areshkin import pole_maker
 from dptb.negf.RGF import recursive_gf
 from dptb.negf.surface_green import selfEnergy
 from dptb.negf.utils import quad, gauss_xw
 from dptb.negf.CFR import ozaki_residues
 from dptb.negf.hamiltonian import Hamiltonian
-from dptb.negf.pole_summation import pole_maker
+from dptb.negf.Areshkin import pole_maker
 from dptb.negf.Device import Device
 from dptb.negf.Lead import Lead
 from ase.io import read

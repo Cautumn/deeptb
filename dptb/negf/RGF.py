@@ -193,7 +193,7 @@ def _recursive_gf(energy, mat_l_list, mat_d_list, mat_u_list, sd, su, sl, s_in=0
                gpd, gpl, gpu, gip_left
 
 
-def recursive_gf(energy, hl, hd, hu, sd, su, sl, left_se, right_se, seP=None, s_in=0, s_out=0,
+def recursive_gf(energy, hl, hd, hu, sd, su, sl, left_se, right_se, seP=None, chemiPot=0.0, s_in=0, s_out=0,
                  eta=1e-5):
     
     """The recursive Green's function algorithm is taken from
@@ -249,6 +249,8 @@ def recursive_gf(energy, hl, hd, hu, sd, su, sl, left_se, right_se, seP=None, s_
     gip_left : numpy.ndarray (dtype=numpy.complex)
         Left-conencted blocks of the retarded Green's function
     """
+
+    energy += chemiPot
 
     temp_mat_d_list = [hd[i] * 1. for i in range(len(hd))]
     temp_mat_l_list = [hl[i] * 1. for i in range(len(hl))]

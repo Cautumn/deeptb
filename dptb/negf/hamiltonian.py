@@ -1,11 +1,11 @@
 from typing import List
 import torch
-from dptb.negf.pole_summation import pole_maker
+from dptb.negf.Areshkin import pole_maker
 from dptb.negf.RGF import recursive_gf
 from dptb.negf.surface_green import selfEnergy
 from dptb.negf.utils import quad, gauss_xw
 from dptb.negf.CFR import ozaki_residues
-from dptb.negf.pole_summation import pole_maker
+from dptb.negf.Areshkin import pole_maker
 from ase.io import read
 from dptb.negf.poisson import density2Potential, getImg
 from dptb.negf.SCF import _SCF
@@ -128,9 +128,9 @@ class Hamiltonian(object):
         if block_tridiagonal:
             return hd, sd, hl, su, sl, hu
         else:
-            return [HD], [SD], None, None, None, None
+            return [HD], [SD], [], [], [], []
     
-    def get_hs_lead(self, kpoint, tab, V):
+    def get_hs_lead(self, kpoint, tab, v):
         f = torch.load(os.path.join(self.result_path, "HS_{0}.pth".format(tab)))
         kpoints = f["kpoints"]
 
@@ -146,7 +146,7 @@ class Hamiltonian(object):
                          f["SL"][ix], f["SLL"][ix], f["SDL"][ix]
 
 
-        return hL, hLL, hDL, sL, sLL, sDL
+        return hL-v*sL, hLL-v*sLL, hDL, sL, sLL, sDL
 
     def attach_potential():
         pass

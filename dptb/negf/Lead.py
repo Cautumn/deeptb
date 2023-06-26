@@ -26,21 +26,25 @@ There will be a kmap outside like: {(0,0,0):1, (0,1,2):2}, to locate which file 
 
 
 class Lead(object):
-    def __init__(self, tab, hamiltonian, structure, result_path) -> None:
+    def __init__(self, tab, hamiltonian, structure, result_path, efermi=0.0) -> None:
         self.hamiltonian = hamiltonian
         self.structure = structure
         self.tab = tab
         self.voltage = self.structure.lead_options["voltage"]
         self.result_path = result_path
+        self.efermi = efermi
+        self.mu = self.efermi - self.voltage
 
 
     def self_energy(self, kpoint, ee, eta_lead: float=1e-5, method: str="Lopez-Sancho"):
         assert len(np.array(kpoint).reshape(-1)) == 3
         # according to given kpoint and e_mesh, calculating or loading the self energy and surface green function to self.
+        if not isinstance(ee, torch.Tensor):
+            ee = torch.tensor(ee)
         ik = update_kmap(self.result_path, kpoint=kpoint)
         SEpath = os.path.join(self.result_path, self.tab+"_SE_k"+str(ik)+".pth")
 
-        HL, HLL, HDL, SL, SLL, SDL = self.hamiltonian.get_hs_lead(kpoint, tab=self.tab, V=self.voltage)
+        HL, HLL, HDL, SL, SLL, SDL = self.hamiltonian.get_hs_lead(kpoint, tab=self.tab, v=self.voltage)
 
         def fn(ee):
             se_list = []
@@ -54,7 +58,7 @@ class Lead(object):
                 sLL=SLL,
                 hDL=HDL,
                 sDL=SDL,
-                voltage=self.voltage,
+                chemiPot=self.mu,
                 etaLead=eta_lead, 
                 method=method
             )

@@ -33,7 +33,7 @@ def ozaki_residues(M_cut:int=1000):
     # compute residues
     res = np.flip(np.abs(evecs[0, :]) ** 2 / (4. * evals ** 2))
 
-    return torch.from_numpy(poles), torch.from_numpy(res)
+    return torch.from_numpy(poles.copy()), torch.from_numpy(res.copy())
 
 
 if __name__ == "__main__":
