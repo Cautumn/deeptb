@@ -26,19 +26,19 @@ class Ozaki(Density):
     def integrate(self, device, kpoint):
         kBT = device.kBT
         # add 0th order moment
-        poles = self.poles * kBT + device.lead_L.mu # left lead expression for rho_eq
-        device.green_function([1j*self.R], kpoint=kpoint, block_tridiagonal=False)
+        poles = 1j* self.poles * kBT + device.lead_L.mu - device.mu # left lead expression for rho_eq
+        device.green_function([1j*self.R-device.mu], kpoint=kpoint, block_tridiagonal=False)
         g0 = device.grd[0][0]
         device.green_function(poles, kpoint=kpoint, block_tridiagonal=False)
-        grd = device.grd[0]
+        grd = torch.stack([i[0] for i in device.grd])
         DM_eq = 1.0j * self.R * g0
         # add higher order terms
         for i in range(grd.shape[0]):
             term = ((-4 * 1j * kBT) * grd[i] * self.residues[i]).imag
-            DM_eq += term
+            DM_eq -= term
         DM_eq = DM_eq.real
 
-        if abs(device.lead_L.voltage - device.lead_R.voltage) < 1e-14:
+        if abs(device.lead_L.voltage - device.lead_R.voltage) > 1e-14:
             # calculating Non-equilibrium density
             xl, xu = min(device.lead_L.voltage, device.lead_R.voltage), max(device.lead_L.voltage, device.lead_R.voltage)
             xl, xu = xl - 4*kBT, xu + 4*kBT
@@ -46,10 +46,14 @@ class Ozaki(Density):
             device.lead_L.self_energy(kpoint=kpoint, ee=xs)
             device.lead_R.self_energy(kpoint=kpoint, ee=xs)
             device.green_function(xs, kpoint=kpoint, block_tridiagonal=False)
-            ggg = torch.bmm(torch.bmm(device.grd[0], device.lead_R.gamma), device.grd[0].conj().permute(0,2,1)) 
-            ggg = ggg * (device.fermi_dirac(xs+device.mu-device.lead_R.mu) - device.fermi_dirac(xs+device.mu-device.lead_L.mu)).view(-1,1)
-            DM_neq = (wlg.view(1,-1) * ggg).sum(dim=0)
+            grd = torch.stack([i[0] for i in device.grd])
+            ggg = torch.bmm(torch.bmm(grd, device.lead_R.gamma), grd.conj().permute(0,2,1))
+            ggg = ggg * (device.fermi_dirac(xs+device.mu-device.lead_R.mu) - device.fermi_dirac(xs+device.mu-device.lead_L.mu)).view(-1,1,1)
+            DM_neq = (wlg.view(-1,1,1) * ggg).sum(dim=0).real
         else:
             DM_neq = 0.
 
         return DM_eq, DM_neq
+    
+    def field(self):
+        return super().field()

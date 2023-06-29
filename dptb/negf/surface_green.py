@@ -139,6 +139,7 @@ def selfEnergy(hL, hLL, sL, sLL, ee, hDL=None, sDL=None, etaLead=1e-8, Bulk=Fals
         eeshifted = torch.scalar_tensor(ee, dtype=dtype) + chemiPot
     else:
         eeshifted = ee + chemiPot
+        
 
     if hDL == None:
         ESH = (eeshifted * sL - hL)

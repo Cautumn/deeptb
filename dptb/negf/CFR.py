@@ -17,6 +17,7 @@ def ozaki_residues(M_cut:int=1000):
     -------
     poles: The positive half of poles, in ascending order.
     res: The residues of positive half of poles.
+    ref:  Karrasch, C., V. Meden, and K. Schönhammer. "Finite-temperature linear conductance from the Matsubara Greens function without analytic continuation to the real axis." Physical Review B 82.12 (2010): 125114.
     """
     if not isinstance(M_cut, int):
         M_cut = int(M_cut)
@@ -31,7 +32,7 @@ def ozaki_residues(M_cut:int=1000):
     # return poles in ascending order
     poles = np.flip(1. / evals)
     # compute residues
-    res = np.flip(np.abs(evecs[0, :]) ** 2 / (4. * evals ** 2))
+    res = np.flip(np.abs(evecs[0, :]) ** 2 / (4. * evals ** 2)) # eq.12
 
     return torch.from_numpy(poles.copy()), torch.from_numpy(res.copy())
 

@@ -272,7 +272,7 @@ def update_temp_file(update_fn, file_path, ee, tags, info):
         file["e_mesh"] += eecal
         # update emap
         for e in eecal:
-            file["emap"][float(e)] = n
+            file["emap"][complex(e)] = n
             n += 1
         for i in tags:
             file[i] += new[i]
@@ -285,7 +285,7 @@ def update_temp_file(update_fn, file_path, ee, tags, info):
     for i in tags:
         # print([file["emap"][float(e)] for e in ee])
         # print(file["e_mesh"])
-        out[i] = [file[i][file["emap"][float(e)]] if err[j]>1e-5 else file[i][dis[j]] for j, e in enumerate(ee)]
+        out[i] = [file[i][file["emap"][complex(e)]] if err[j]>1e-5 else file[i][dis[j]] for j, e in enumerate(ee)]
 
 
     

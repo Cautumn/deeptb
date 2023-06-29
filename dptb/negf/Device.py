@@ -30,7 +30,7 @@ class Device(object):
     def green_function(self, ee, kpoint, etaDevice=0., block_tridiagonal=True):
         assert len(np.array(kpoint).reshape(-1)) == 3
         if not isinstance(ee, torch.Tensor):
-            ee = torch.tensor(ee)
+            ee = torch.tensor(ee, dtype=torch.complex128)
 
         if hasattr(self, "__DOS__"):
             delattr(self, "__DOS__")
@@ -176,7 +176,7 @@ class Device(object):
             temp = torch.stack([i[jj] for i in self.grd]) @ sd[jj]
             dos -= temp.imag.diagonal(offset=0, dim1=-1, dim2=-2).sum(-1) / pi
 
-        self.__DOS__ = dos
+        self.__DOS__ = dos * 2
 
     @property
     def g_trans(self):
@@ -184,8 +184,7 @@ class Device(object):
     
     @property
     def grd(self):
-        print(self.green["grd"])
-        return [torch.stack(i) for i in self.green["grd"]]
+        return self.green["grd"]
     
     @property
     def grl(self):
