@@ -363,16 +363,62 @@ class HamilEig(RotationSK):
             
         return Hk
 
-    def Eigenvalues(self, kpoints, time_symm=True, unit="Hartree",if_eigvec=False):
+    def hs_block_mol(self, HorS='H', time_symm=True):
+        numOrbs = np.array(self.num_orbs_per_atom)
+        totalOrbs = np.sum(numOrbs)
+        if HorS == 'H':
+            hijAll = self.hamil_blocks
+        elif HorS == 'S':
+            hijAll = self.overlap_blocks
+        else:
+            print("HorS should be 'H' or 'S' !")
+
+        if self.soc:
+            Hk = th.zeros([2*totalOrbs, 2*totalOrbs], dtype = self.cdtype, device=self.device)
+        else:
+            Hk = th.zeros([totalOrbs, totalOrbs], dtype = self.cdtype, device=self.device)
+
+        hk = th.zeros([totalOrbs,totalOrbs],dtype = self.cdtype, device=self.device)
+        for ib in range(len(self.all_bonds)):
+            i = self.all_bonds[ib,1].astype(int)
+            j = self.all_bonds[ib,3].astype(int)
+            ist = int(np.sum(numOrbs[0:i]))
+            ied = int(np.sum(numOrbs[0:i+1]))
+            jst = int(np.sum(numOrbs[0:j]))
+            jed = int(np.sum(numOrbs[0:j+1]))
+            if ib < len(numOrbs): 
+                if time_symm:
+                    hk[ist:ied,jst:jed] += 0.5 * hijAll[ib]
+                else:
+                    hk[ist:ied,jst:jed] += hijAll[ib]
+            else:
+                hk[ist:ied,jst:jed] += hijAll[ib]
+        if time_symm:
+            hk = hk + hk.T.conj()
+        if self.soc:
+            hk = torch.kron(input=torch.eye(2, device=self.device, dtype=self.dtype), other=hk)
+        Hk = hk
+        
+        if self.soc:
+            Hk[:, :totalOrbs, :totalOrbs] += self.soc_upup.unsqueeze(0)
+            Hk[:, totalOrbs:, totalOrbs:] += self.soc_upup.conj().unsqueeze(0)
+            Hk[:, :totalOrbs, totalOrbs:] += self.soc_updown.unsqueeze(0)
+            Hk[:, totalOrbs:, :totalOrbs] += self.soc_updown.conj().unsqueeze(0)
+        
+        Hk.contiguous()
+            
+        return Hk
+
+    def Eigenvalues(self, time_symm=True, unit="Hartree",if_eigvec=False):
         """ using the tight-binding H and S matrix calculate eigenvalues at kpoints.
         
         Args:
             kpoints: the k-kpoints used to calculate the eigenvalues.
         Note: must have the BondHBlock and BondSBlock 
         """
-        hkmat = self.hs_block_R2k(kpoints=kpoints, HorS='H', time_symm=time_symm)
+        hkmat = self.hs_block_mol(HorS='H', time_symm=time_symm)
         if not self.use_orthogonal_basis:
-            skmat =  self.hs_block_R2k(kpoints=kpoints, HorS='S', time_symm=time_symm)
+            skmat =  self.hs_block_mol(HorS='S', time_symm=time_symm)
         else:
             skmat = torch.eye(hkmat.shape[1], dtype=self.cdtype).unsqueeze(0).repeat(hkmat.shape[0], 1, 1)
 
