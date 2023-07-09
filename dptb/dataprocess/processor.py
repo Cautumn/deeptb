@@ -6,15 +6,15 @@ from dptb.structure.abstract_stracture import AbstractStructure
 
 class Processor(object):
     # TODO: 现在strain的env 是通过get_env 获得，但是在dptb中的env是有另外的含义。是否已经考虑。
-    def __init__(self, structure_list: List[AbstractStructure], kpoint, eigen_list, batchsize: int, wannier_list = None, env_cutoff: float = 3.0, onsitemode=None, 
-    onsite_cutoff=None, sorted_bond=None, sorted_onsite=None, sorted_env=None, bandinfo=None, device='cpu', dtype=torch.float32, if_shuffle=True):
+    def __init__(self, structure_list: List[AbstractStructure], \
+        eigen_list, batchsize: int, env_cutoff: float = 3.0, onsitemode=None, \
+            onsite_cutoff=None, sorted_bond=None, sorted_onsite=None, sorted_env=None, \
+                bandinfo=None, device='cpu', dtype=torch.float32, if_shuffle=True):
         super(Processor, self).__init__()
         if isinstance(structure_list, AbstractStructure):
             structure_list = [structure_list]
         self.structure_list = np.array(structure_list, dtype=object)
-        self.kpoint = kpoint
         self.eigen_list = np.array(eigen_list, dtype=object)
-        self.wannier_list = np.array(wannier_list, dtype=object) # [{"i-j-R":np.array}]
         self.sorted_bond = sorted_bond
         self.sorted_env = sorted_env
         self.sorted_onsite = sorted_onsite
@@ -80,7 +80,7 @@ class Processor(object):
         
         if len(self.__struct_workspace__) == 0:
             self.__struct_workspace__ = self.structure_list
-        n_stw = len(self.__struct_workspace__)
+        n_stw = len(self.__struct_workspace__) # == self.structure_list
 
         if cutoff is None:
             cutoff = self.env_cutoff
@@ -269,11 +269,13 @@ class Processor(object):
 
             if not self.onsitemode == 'strain':
                 data = (bond, bond_onsite, self.get_env(sorted=self.sorted_env), None,  self.__struct_workspace__,
-                    self.kpoint, self.eigen_list[self.__struct_idx_workspace__].astype(float), self.wannier_list[self.__struct_idx_workspace__])
+                    self.eigen_list)
+                    #self.eigen_list[self.__struct_idx_workspace__].astype(float))
             else:
                 data = (bond, bond_onsite, self.get_env(sorted=self.sorted_env), self.get_onsitenv(cutoff=self.onsite_cutoff, sorted=self.sorted_onsite), self.__struct_workspace__,
-                    self.kpoint, self.eigen_list[self.__struct_idx_workspace__].astype(float), self.wannier_list[self.__struct_idx_workspace__])
-
+                    self.eigen_list)
+                    #self.eigen_list[self.__struct_idx_workspace__].astype(float))
+            #print(len(self.eigen_list))
             self.it += 1
             return data
         else:
@@ -290,9 +292,12 @@ if __name__ == '__main__':
     from ase.build import graphene_nanoribbon
     from dptb.structure.structure import BaseStruct
     atoms = graphene_nanoribbon(1.5, 1, type='armchair', saturated=True)
-    basestruct = BaseStruct(atom=atoms, format='ase', cutoff=1.5, proj_atom_anglr_m={'C': ['s', 'p']}, proj_atom_neles={"C":4})
-
-    p = Processor(mode = 'dptb', structure_list=[basestruct, basestruct, basestruct, basestruct], kpoint=1, eigen_list=[1,2,3,4], batchsize=1, env_cutoff=1.5)
+    basestruct = BaseStruct(atom=atoms, format='ase', cutoff=1.5, \
+        proj_atom_anglr_m={'C': ['s', 'p']}, proj_atom_neles={"C":4})
+    """env = basestruct.get_env(env_cutoff=1.5, sorted='st')
+    print(env)"""
+    p = Processor(structure_list=[basestruct, basestruct, basestruct, basestruct], \
+        eigen_list=[1,2,3,4], batchsize=1, env_cutoff=1.5)
 
     count = 0
     for data in p:
