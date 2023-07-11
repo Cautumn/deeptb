@@ -659,7 +659,6 @@ def negf():
     doc_scf = ""
     doc_el_T = ""
     doc_unit = ""
-    doc_read_HS = ""
     doc_read_GF = ""
     doc_read_SE = ""
     doc_scf_options = ""
@@ -687,7 +686,6 @@ def negf():
         Argument("unit", str, optional=True, default="Hartree", doc=doc_unit),
         Argument("eta_lead", [int, float], optional=True, default=1e-5, doc=doc_eta_lead),
         Argument("eta_device", [int, float], optional=True, default=0., doc=doc_eta_device),
-        Argument("read_HS", bool, optional=True, default=False, doc=doc_read_HS),
         Argument("read_GF", bool, optional=True, default=False, doc=doc_read_GF),
         Argument("read_SE", bool, optional=True, default=False, doc=doc_read_SE),
         Argument("sgf_solver", str, optional=True, default="Sancho-Rubio", doc=doc_sgf_solver),

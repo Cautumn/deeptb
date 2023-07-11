@@ -221,9 +221,10 @@ def quad(
 def update_kmap(result_path, kpoint):
     if os.path.exists(os.path.join(result_path, "KMAP.pth")):
         kmap = torch.load(os.path.join(result_path, "KMAP.pth"))
-        ik = np.argmin(np.abs(np.array(kmap) - np.array(kpoint).reshape(1,-1)).sum(axis=1))
+        err = np.abs(np.array(kmap) - np.array(kpoint).reshape(1,-1)).sum(axis=1)
+        ik = np.argmin(err)
         
-        if ik > 1e-7:
+        if err[ik] > 1e-7:
             ik = len(kmap)
             kmap.append(kpoint)
     else:
@@ -1217,6 +1218,45 @@ def interp_sk_gridvalues(skfile_types, grid_distance, num_grids, HSintgrl):
 
 
 
+def write_vesta_lcurrent(positions, vesta_file, lcurrent, current):
+    with open(vesta_file, "r") as f:
+        data = f.read()
+        f.close()
 
+    replace_start = data.find("VECTR")
+    replace_end = data.find("SPLAN")
 
+    N,M = lcurrent.shape
+    L_VECTR = []
+    L_VECTT = []
 
+    count = 1
+    for i in range(0,N):
+        for j in range(i+1,M):
+            net_current = lcurrent[i,j]-lcurrent[j,i]
+            if abs(net_current) > 1e-6:
+                if net_current > 0:
+                    pos = positions[j]-positions[i]
+                    line = [count] + list(pos / np.sqrt((pos**2).sum()) * (net_current/abs(current)))+[1]
+                    line = [str(p) for p in line]
+                    L_VECTR.append(" ".join(line))
+                    L_VECTR.append(str(i+1)+" 0 0 0 0")
+                    L_VECTR.append("0 0 0 0 0")
+                    L_VECTT.append(str(count) + " 0.2 255 0 0 2")
+                else:
+                    pos = positions[i]-positions[j]
+                    line = [count] + list(-pos / np.sqrt((pos**2).sum()) * (net_current/abs(current)))+[1]
+                    line = [str(p) for p in line]
+                    L_VECTR.append(" ".join(line))
+                    L_VECTR.append(str(j+1)+" 0 0 0 0")
+                    L_VECTR.append("0 0 0 0 0")
+                    L_VECTT.append(str(count) + " 0.2 255 0 0 2")
+                count += 1
+
+    
+    text = "VECTR\n"+"\n".join(L_VECTR)+"\n0 0 0 0 0\n"+"VECTT\n"+"\n".join(L_VECTT)+"\n0 0 0 0 0\n"
+
+    data = data[:replace_start]+text+data[replace_end:]
+
+    with open(vesta_file, "w") as f:
+        f.write(data)

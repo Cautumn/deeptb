@@ -3,6 +3,11 @@ from dptb.negf.CFR import ozaki_residues
 from dptb.negf.Areshkin import pole_maker
 import numpy as np
 from dptb.negf.utils import gauss_xw
+import logging
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
+log = logging.getLogger(__name__)
 
 class Density(object):
     def __init__(self) -> None:
@@ -11,10 +16,47 @@ class Density(object):
     def integrate(self, device):
         pass
 
-    def field(self):
-        pass
+    def slice(self, device, density, fix_dim="z", vslice=0.3, h=0.01, sigma=0.05, plot=False, optimize=False):
+        
+        lx, ly, lz = device.structure.cell.array.max(axis=0)
+        sx, sy, sz = device.structure.cell.array.min(axis=0)
 
+        if optimize:
+            lx, ly, lz = (density[:,:3] + 5 * sigma).max(dim=0)[0]
+            sx, sy, sz = (density[:,:3] - 5 * sigma).min(dim=0)[0]
+        
+        index = {"x":[1,2],"y":[0,2],"z":[0,1]}
+        if fix_dim == "x":
+            X, Y = torch.arange(sy,ly+h, h), torch.arange(sz,lz+h, h)
+            grid = torch.meshgrid(torch.scalar_tensor(vslice), torch.arange(sy,ly+h, h), torch.arange(sz,lz+h, h))
+        elif fix_dim == "y":
+            X, Y = torch.arange(sx,lx+h, h), torch.arange(sz,lz+h, h)
+            grid = torch.meshgrid(torch.arange(sx,lx+h, h), torch.scalar_tensor(vslice), torch.arange(sz,lz+h, h))
+        elif fix_dim == "z":
+            X, Y = torch.arange(sx,lx+h, h), torch.arange(sy,ly+h, h)
+            grid = torch.meshgrid(torch.arange(sx,lx+h, h), torch.arange(sy,ly+h, h), torch.scalar_tensor(vslice))
+        else:
+            log.error("The fix_dim parameters only allow x/y/z.")
+            raise ValueError
+        
+        grid = torch.stack(grid).view(3,-1).T
+        dist = torch.cdist(grid, density[:,:3].float(), p=2)**2
 
+        data = (2*torch.pi*sigma)**-0.5 * density[:,-1].unsqueeze(0) * torch.exp(-dist/(2*sigma**2))
+
+        data = data.sum(dim=1)
+
+        if plot:
+            norm = mpl.colors.Normalize(vmin=0., vmax=0.55)
+            xmin, xmax = X.min(), X.max()
+            ymin, ymax = Y.min(), Y.max()
+            ax = plt.axes(xlim=(xmin,xmax), ylim=(ymin,ymax))
+            pc = ax.pcolor(X,Y,data.reshape(len(X), len(Y)).T, cmap="Reds", norm=norm)
+            plt.colorbar(pc, ax=ax)
+            plt.plot()
+        
+        return X, Y, data
+    
 class Ozaki(Density):
     def __init__(self, R, M_cut, n_gauss):
         super(Ozaki, self).__init__()
@@ -55,5 +97,18 @@ class Ozaki(Density):
 
         return DM_eq, DM_neq
     
-    def field(self):
-        return super().field()
+    def get_density_onsite(self, device, DM):
+        # assume DM is a cubic tensor
+        if len(DM.shape) == 2:
+            DM = DM.diag()
+        elif not len(DM.shape) == 1:
+            log.error("The DM must be the of shape [norbs] or [norbs, norbs]")
+
+
+        norbs = [0]+device.norbs_per_atom
+        accmap = np.cumsum(norbs)
+        onsite_density = torch.stack([DM[accmap[i]:accmap[i+1]].sum() for i in range(len(accmap)-1)])
+        
+        onsite_density = torch.cat([torch.from_numpy(device.structure.positions), onsite_density.unsqueeze(-1)], dim=-1)
+
+        return onsite_density

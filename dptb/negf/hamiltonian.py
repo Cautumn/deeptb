@@ -57,8 +57,14 @@ class Hamiltonian(object):
         HS_device["kpoints"] = kpoints
 
         self.apiH.update_struct(self.structase, mode="device", stru_options=j_must_have(self.stru_options, "device"))
-        structure_device = self.apiH.structure
-        self.atom_norbs = [self.apiH.structure.proj_atomtype_norbs[i] for i in self.apiH.structure.atom_symbols]
+        # change parameters to match the structure projection
+        n_proj_atom_pre = np.array([1]*len(self.structase))[:self.device_id[0]][self.apiH.structure.projatoms[:self.device_id[0]]].sum()
+        n_proj_atom_device = np.array([1]*len(self.structase))[self.device_id[0]:self.device_id[1]][self.apiH.structure.projatoms[self.device_id[0]:self.device_id[1]]].sum()
+        self.device_id[0] = n_proj_atom_pre
+        self.device_id[1] = n_proj_atom_pre + n_proj_atom_device
+        projatoms = self.apiH.structure.projatoms
+
+        self.atom_norbs = [self.apiH.structure.proj_atomtype_norbs[i] for i in self.apiH.structure.proj_atom_symbols]
         self.apiH.get_HR()
         H, S = self.apiH.get_HK(kpoints=kpoints)
         d_start = int(np.sum(self.atom_norbs[:self.device_id[0]]))
@@ -72,12 +78,21 @@ class Hamiltonian(object):
             HS_device.update({"hd":hd, "hu":hu, "hl":hl, "sd":sd, "su":su, "sl":sl})
 
         torch.save(HS_device, os.path.join(self.result_path, "HS_device.pth"))
+        structure_device = self.apiH.structure.projected_struct[self.device_id[0]:self.device_id[1]]
         
         structure_leads = {}
         for kk in self.stru_options:
             if kk.startswith("lead"):
                 HS_leads = {}
                 lead_id = [int(x) for x in self.stru_options.get(kk)["id"].split("-")]
+                stru_lead = self.structase[lead_id[0]:lead_id[1]]
+                self.apiH.update_struct(stru_lead, mode="lead", stru_options=self.stru_options.get(kk))
+                # update lead id
+                n_proj_atom_pre = np.array([1]*len(self.structase))[:lead_id[0]][projatoms[:lead_id[0]]].sum()
+                n_proj_atom_lead = np.array([1]*len(self.structase))[lead_id[0]:lead_id[1]][projatoms[lead_id[0]:lead_id[1]]].sum()
+                lead_id[0] = n_proj_atom_pre
+                lead_id[1] = n_proj_atom_pre + n_proj_atom_lead
+
                 l_start = int(np.sum(self.atom_norbs[:lead_id[0]]))
                 l_end = int(l_start + np.sum(self.atom_norbs[lead_id[0]:lead_id[1]]) / 2)
                 HL, SL = H[:,l_start:l_end, l_start:l_end], S[:, l_start:l_end, l_start:l_end] # lead hamiltonian
@@ -89,9 +104,8 @@ class Hamiltonian(object):
                     "SDL":SDL.cdouble()}
                     )
 
-                stru_lead = self.structase[lead_id[0]:lead_id[1]]
-                self.apiH.update_struct(stru_lead, mode="lead", stru_options=self.stru_options.get(kk))
-                structure_leads[kk] = self.apiH.structure
+                
+                structure_leads[kk] = self.apiH.structure.struct
                 self.apiH.get_HR()
                 h, s = self.apiH.get_HK(kpoints=kpoints)
                 nL = int(h.shape[1] / 2)
@@ -128,7 +142,7 @@ class Hamiltonian(object):
         if block_tridiagonal:
             return hd, sd, hl, su, sl, hu
         else:
-            return [HD], [SD], [], [], [], []
+            return [HD - V*SD], [SD], [], [], [], []
     
     def get_hs_lead(self, kpoint, tab, v):
         f = torch.load(os.path.join(self.result_path, "HS_{0}.pth".format(tab)))
@@ -153,6 +167,10 @@ class Hamiltonian(object):
 
     def write(self):
         pass
+
+    @property
+    def device_norbs(self):
+        return self.atom_norbs[self.device_id[0]:self.device_id[1]]
 
     # def get_hs_block_tridiagonal(self, HD, SD):
 

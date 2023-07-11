@@ -57,19 +57,37 @@ class NEGF(object):
         self.init_indices()
         self.unit = jdata["unit"]
         self.scf = jdata["scf"]
+        self.block_tridiagonal = jdata["block_tridiagonal"]
         self.properties = jdata["properties"]
         
 
         # computing the hamiltonian
-        self.hamiltonian = Hamiltonian(apiH=self.apiH, structase=self.structase, stru_options=self.stru_options)
-        _, _, struct_device, struct_leads = self.hamiltonian.initialize(self.kpoints)
+        self.hamiltonian = Hamiltonian(apiH=self.apiH, structase=self.structase, stru_options=jdata["stru_options"], result_path=self.results_path)
+        with torch.no_grad():
+            struct_device, struct_leads = self.hamiltonian.initialize(kpoints=self.kpoints)
         self.generate_energy_grid()
 
-        self.device = Device(self.hamiltonian, struct_device)
-        self.device.set_leadLR(
-            lead_L=Lead(self.hamiltonian, tab="lead_L", structure=struct_leads["lead_L"]),
-            lead_R=Lead(self.hamiltonian, tab="lead_R", structure=struct_leads["lead_L"])
+        device = Device(self.hamiltonian, struct_device, result_path=self.results_path, efermi=self.e_fermi)
+        device.set_leadLR(
+                lead_L=Lead(
+                hamiltonian=self.hamiltonian, 
+                tab="lead_L", 
+                structure=struct_leads["lead_L"], 
+                result_path=self.results_path,
+                e_T=self.el_T,
+                efermi=self.e_fermi, 
+                voltage=self.jdata["stru_options"]["lead_L"]["voltage"]
+            ),
+            lead_R=Lead(
+                hamiltonian=self.hamiltonian, 
+                tab="lead_R", 
+                structure=struct_leads["lead_R"], 
+                result_path=self.results_path, 
+                e_T=self.el_T,
+                efermi=self.e_fermi, 
+                voltage=self.jdata["stru_options"]["lead_R"]["voltage"]
             )
+        )
 
 
     def generate_energy_grid(self):
@@ -104,42 +122,31 @@ class NEGF(object):
             self.uni_grid = torch.linspace(start=self.jdata["emin"], end=self.jdata["emax"], steps=int((self.jdata["emax"]-self.jdata["emin"])/self.jdata["espacing"]))
 
         if cal_pole:
-            self.poles, self.residues = ozaki_residues(M_cut=200)
+            self.poles, self.residues = ozaki_residues(M_cut=self.jdata["M_cut"])
         
         if cal_neq_grid:
             xl = min(v_list)-4*self.kBT
             xu = max(v_list)+4*self.kBT
-            self.neq_grid, self.neq_weight = gauss_xw(xl=xl, xu=xu, n=(xu-xl)/self.jdata["espacing"])
-        
+            self.neq_grid, self.neq_weight = gauss_xw(xl=xl, xu=xu, n=int((xu-xl)/self.jdata["espacing"]))
+
         if cal_int_grid:
-            self.int_grid, self.int_weight = gauss_xw(xl=xl, xu=xu, n=(xu-xl)/self.jdata["espacing"])
+            xl = min(v_list)-4*self.kBT
+            xu = max(v_list)+4*self.kBT
+            self.int_grid, self.int_weight = gauss_xw(xl=xl, xu=xu, n=int((xu-xl)/self.jdata["espacing"]))
 
         e_mesh = torch.concat([self.uni_grid, self.poles, self.neq_grid, self.int_grid], dim=0)
         e_mesh = torch.unique(e_mesh)
-        # how to del with e_fermi
-
-        self.e_mesh = e_mesh - self.e_fermi
-        self.eindex = {}
-        for ie, e in enumerate(self.e_mesh):
-            self.eindex[e] = ie
-
-    def get_poles(self, method):
-        if method == "cfr":
-            poles, residues = ozaki_residues(M_cut=200)
-        elif method == "Areshkin":
-            poles, residues = pole_maker(Emin=-25, ChemPot=0., kT=self.kBT, reltol=1e-14)
-        else:
-            log.error("The pole integration method should be within cfr/Areshkin")
-            raise ValueError
-        
-        return poles, residues
+        self.e_mesh = e_mesh
 
     def compute(self):
         # compute the grid
-
         for k in self.kpoints:
-            self.device.lead_L.self_energy(ee=self.e_mesh, kpoint=k)
-            self.device.green_function(ee=self.e_mesh)
+            self.device.green_function(
+                ee=self.e_mesh, 
+                kpoint=k, 
+                etaDevice=self.jdata["eta_device"], 
+                block_tridiagonal=self.block_tridiagonal
+                )
             self.compute_properties()
     
     def fermi_dirac(self, x) -> torch.Tensor:
@@ -150,7 +157,7 @@ class NEGF(object):
         out = {}
         for p in self.properties:
             log.info(msg="Computing {0}".format(p))
-            out[p] = getattr(self, "compute_"+p)()
+            out[p] = getattr(self.device, p)()
 
         torch.save(obj=out, f=os.path.join(self.results_path, "./properties.pth"))
 
@@ -161,7 +168,9 @@ class NEGF(object):
     def compute_TC(self):
         tc = [self.TC(seL=self.SeE["lead_L"][self.eindex[e]], seR=self.SeE["lead_R"][self.eindex[e]], gtrains=self.green[self.eindex[e]][0]) for e in self.uni_grid]
         return tc
+    
+    def compute_current(self):
+        self.device.green_function(ee=self.int_grid, kpoint=k, etaDevice=self.jdata["eta_device"], block_tridiagonal=self.block_tridiagonal)
 
     def SCF(self):
         pass
-    

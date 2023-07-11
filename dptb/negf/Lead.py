@@ -4,6 +4,7 @@ from dptb.negf.surface_green import selfEnergy
 import logging
 from dptb.negf.utils import update_kmap, update_temp_file
 import os
+from dptb.utils.constants import *
 import numpy as np
 
 log = logging.getLogger(__name__)
@@ -26,27 +27,32 @@ There will be a kmap outside like: {(0,0,0):1, (0,1,2):2}, to locate which file 
 
 
 class Lead(object):
-    def __init__(self, tab, hamiltonian, structure, result_path, efermi=0.0) -> None:
+    def __init__(self, tab, hamiltonian, structure, result_path, voltage, e_T=300, efermi=0.0) -> None:
         self.hamiltonian = hamiltonian
         self.structure = structure
         self.tab = tab
-        self.voltage = self.structure.lead_options["voltage"]
+        self.voltage = voltage
         self.result_path = result_path
+        self.kBT = k * e_T / eV
+        self.e_T = e_T
         self.efermi = efermi
         self.mu = self.efermi - self.voltage
-
 
     def self_energy(self, kpoint, ee, eta_lead: float=1e-5, method: str="Lopez-Sancho"):
         assert len(np.array(kpoint).reshape(-1)) == 3
         # according to given kpoint and e_mesh, calculating or loading the self energy and surface green function to self.
         if not isinstance(ee, torch.Tensor):
             ee = torch.tensor(ee)
+
+        self.ee = ee
         ik = update_kmap(self.result_path, kpoint=kpoint)
         SEpath = os.path.join(self.result_path, self.tab+"_SE_k"+str(ik)+".pth")
 
         HL, HLL, HDL, SL, SLL, SDL = self.hamiltonian.get_hs_lead(kpoint, tab=self.tab, v=self.voltage)
 
         def fn(ee):
+            if not isinstance(ee, torch.Tensor):
+                ee = torch.tensor(ee, dtype=torch.complex128)
             se_list = []
             gf_list = []
             for e in ee:
@@ -71,6 +77,9 @@ class Lead(object):
 
     def sigmaLR2Gamma(self, se):
         return -1j * (se - se.conj())
+    
+    def fermi_dirac(self, x) -> torch.Tensor:
+        return 1 / (1 + torch.exp((x - self.mu)/ self.kBT))
     
     @property
     def se(self):
